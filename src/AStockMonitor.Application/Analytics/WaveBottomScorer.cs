@@ -62,7 +62,6 @@ public sealed class WaveBottomScorer(WaveBottomOptions options)
 
         var priorMa10 = closes.Skip(closes.Length - 15).Take(10).Average();
         var maRecovered = closes[^1] > ma10 && ma10 >= priorMa10;
-        var platformBreakout = closes[^1] > highs.Skip(highs.Length - 11).Take(10).Max();
         var previousFiveVolume = volumes.Skip(volumes.Length - 6).Take(5).Average();
         var volumeImproved = previousFiveVolume > 0d && volumes[^1] >= previousFiveVolume * 1.2d;
 
@@ -78,8 +77,6 @@ public sealed class WaveBottomScorer(WaveBottomOptions options)
                 structure ? "更高低点或双底" : "未形成确定结构"),
             Component("MA_RECOVERY", "均线修复", 15, maRecovered,
                 $"收盘={closes[^1]:F3},MA10={ma10:F3}"),
-            Component("PLATFORM_BREAKOUT", "突破短期压力", 10, platformBreakout,
-                platformBreakout ? "突破前10日高点" : "尚未突破前10日高点"),
             Component("VOLUME_CONFIRM", "突破量能改善", 10, volumeImproved,
                 previousFiveVolume <= 0d ? "均量不可用" : $"量比={volumes[^1] / previousFiveVolume:F2}")
         };

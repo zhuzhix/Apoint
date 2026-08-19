@@ -425,9 +425,9 @@ var waveBars = Enumerable.Range(0, 120).Select(index =>
 var completeWave = waveScorer.Evaluate(waveBars);
 Require(completeWave.CalculationStatus == "COMPLETED" && completeWave.DailyBarCount == 120,
     "120根已闭合日K必须完成波段评分。");
-Require(completeWave.Components.Sum(static item => item.Score) == 100 &&
-        completeWave.Score is >= 0 and <= 100 && completeWave.InputHash.Length == 64,
-    "波段七项权重必须严格合计100分且结果可追溯。");
+Require(completeWave.Components.Sum(static item => item.Score) == 90 &&
+        completeWave.Score is >= 0 and <= 90 && completeWave.InputHash.Length == 64,
+    "波段六项权重必须严格合计90分且结果可追溯。");
 var insufficientWave = waveScorer.Evaluate(waveBars.Take(59).ToArray());
 Require(insufficientWave.CalculationStatus == "INSUFFICIENT_DATA" &&
         insufficientWave.Signal == "NONE" && insufficientWave.Score == 0,
