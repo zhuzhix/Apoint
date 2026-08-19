@@ -1,0 +1,29 @@
+{
+  "name": "astock-monitor-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build && node scripts/precompress.mjs",
+    "typecheck": "vue-tsc -b",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@ant-design/icons-vue": "latest",
+    "@microsoft/signalr": "^10.0.0",
+    "@tanstack/vue-query": "latest",
+    "ant-design-vue": "latest",
+    "echarts": "latest",
+    "pinia": "latest",
+    "vue": "latest",
+    "vue-router": "^4.6.0"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@vitejs/plugin-vue": "latest",
+    "typescript": "^5.9.3",
+    "vite": "latest",
+    "vue-tsc": "latest"
+  }
+}

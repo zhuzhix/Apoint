@@ -1,0 +1,10 @@
+packages:
+  - web
+
+allowBuilds:
+  core-js: true
+  vue-demi: true
+
+onlyBuiltDependencies:
+  - core-js
+  - vue-demi

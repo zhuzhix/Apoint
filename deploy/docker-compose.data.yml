@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis:8
+    container_name: astock-redis
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    command: >-
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+      --requirepass ${REDIS_PASSWORD:-change-me}
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-change-me}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mysql:
+    image: mysql:8.4
+    container_name: astock-mysql
+    restart: unless-stopped
+    command: --default-time-zone=+08:00
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root-change-me}
+      MYSQL_DATABASE: astock_monitor
+      MYSQL_USER: astock_app
+      MYSQL_PASSWORD: ${MYSQL_APP_PASSWORD:-change-me}
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ../database/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  redis-data:
+  mysql-data:

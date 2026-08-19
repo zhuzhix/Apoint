@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\AStockMonitor.Application\AStockMonitor.Application.csproj" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Models\PairTrendCollectionModels.cs"
+             Link="PairTrendCollectionModels.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Models\PairTrendQueryModels.cs"
+             Link="PairTrendQueryModels.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Services\PairTrendCollectionSessionStore.cs"
+             Link="PairTrendCollectionSessionStore.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Services\PairTrendCollectionWindowPlanner.cs"
+             Link="PairTrendCollectionWindowPlanner.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Services\OperationsHealthPolicy.cs"
+             Link="OperationsHealthPolicy.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Services\PairTrendQueryPolicy.cs"
+             Link="PairTrendQueryPolicy.cs" />
+    <Compile Include="..\..\src\AStockMonitor.Api\Services\AuthoritativeUniverseSyncService.cs"
+             Link="AuthoritativeUniverseSyncService.cs" />
+  </ItemGroup>
+</Project>

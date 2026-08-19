@@ -1,0 +1,30 @@
+[Unit]
+Description=AStockMonitor WebAPI and Web Site
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=astock
+Group=astock
+WorkingDirectory=/opt/astock-monitor/api
+EnvironmentFile=/etc/astock-monitor/webapi.env
+ExecStart=/opt/astock-monitor/api/AStockMonitor.Api
+Restart=always
+RestartSec=5
+TimeoutStartSec=60
+TimeoutStopSec=30
+KillSignal=SIGINT
+SyslogIdentifier=astock-webapi
+
+NoNewPrivileges=true
+
+# The API is stateless apart from its in-memory trading-day session.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/astock-monitor
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target

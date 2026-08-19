@@ -1,0 +1,184 @@
+syntax = "proto3";
+
+package astock.monitoring.v1;
+
+option csharp_namespace = "AStockMonitor.Contracts.Protos";
+
+import "google/protobuf/timestamp.proto";
+
+service MarketIngest {
+  rpc Connect(stream CollectorMessage) returns (stream ServerMessage);
+}
+
+message CollectorMessage {
+  oneof payload {
+    Handshake handshake = 1;
+    TickEvent tick = 2;
+    Heartbeat heartbeat = 3;
+    WorkerMetric metric = 4;
+    OfficialBarEnvelope official_bar = 5;
+    TickBatch tick_batch = 6;
+    OfficialBarBatch official_bar_batch = 7;
+  }
+}
+
+// A batch contains one Redis shard only. This lets the server commit the
+// entire batch atomically and acknowledge it once instead of once per Tick.
+message TickBatch {
+  string batch_id = 1;
+  string worker_id = 2;
+  string session_id = 3;
+  int32 shard_id = 4;
+  int64 first_worker_sequence = 5;
+  int64 last_worker_sequence = 6;
+  repeated TickEvent ticks = 7;
+}
+
+message OfficialBarEnvelope {
+  string event_id = 1;
+  string symbol = 2;
+  string frequency = 3;
+  string trading_date = 4;
+  google.protobuf.Timestamp bob = 5;
+  google.protobuf.Timestamp eob = 6;
+  int64 open_price_e6 = 7;
+  int64 high_price_e6 = 8;
+  int64 low_price_e6 = 9;
+  int64 close_price_e6 = 10;
+  int64 pre_close_e6 = 11;
+  int64 volume = 12;
+  int64 amount_e4 = 13;
+  bool is_closed = 14;
+  google.protobuf.Timestamp source_updated_at = 15;
+  string source = 16;
+  string row_hash = 17;
+  string collection_mode = 18;
+  int64 recovery_item_id = 19;
+}
+
+// The Gateway owns the durable local inbox and sends an official K-line batch
+// only after it has been persisted locally. The API deduplicates by the pair
+// (command_id, batch_id); Python never talks to this endpoint directly.
+message OfficialBarBatch {
+  string command_id = 1;
+  string batch_id = 2;
+  string gateway_id = 3;
+  string worker_id = 4;
+  int64 recovery_item_id = 5;
+  repeated OfficialBarEnvelope bars = 6;
+}
+
+message Handshake {
+  string worker_id = 1;
+  string source = 2;
+  int32 protocol_version = 3;
+  string assignment_version = 4;
+}
+
+message TickEvent {
+  string event_id = 1;
+  string symbol = 2;
+  google.protobuf.Timestamp event_time = 3;
+  google.protobuf.Timestamp receive_time = 4;
+  int64 price_e6 = 5;
+  int64 pre_close_e6 = 6;
+  int64 cumulative_volume = 7;
+  int64 cumulative_amount_e4 = 8;
+  int64 last_volume = 9;
+  int64 last_amount_e4 = 10;
+  int64 bid_price1_e6 = 11;
+  int64 bid_volume1 = 12;
+  int64 ask_price1_e6 = 13;
+  int64 ask_volume1 = 14;
+  // A stable local outbox identity. It survives reconnects and lets the
+  // service distinguish a replay from a newly collected event.
+  string session_id = 15;
+  int64 worker_sequence = 16;
+  // Distinguishes complete realtime callbacks from sampled snapshots and
+  // bounded reconnect recovery. Old clients leave this empty and are treated
+  // as REALTIME_SUBSCRIPTION by the server.
+  string collection_mode = 17;
+  // Higher-priority sources win the Redis latest projection when event times
+  // are equal. Realtime subscription=300, snapshot=200, recovery=100.
+  int32 source_priority = 18;
+}
+
+message Heartbeat {
+  string worker_id = 1;
+  int64 process_uptime_ms = 2;
+  int64 queue_depth = 3;
+  int64 received_count = 4;
+  int64 published_count = 5;
+  int64 outbox_pending_count = 6;
+  int64 outbox_size_bytes = 7;
+  int64 failed_count = 8;
+}
+
+message WorkerMetric {
+  string worker_id = 1;
+  double cpu_percent = 2;
+  int64 memory_bytes = 3;
+  int64 queue_depth = 4;
+}
+
+message ServerMessage {
+  oneof payload {
+    IngestAck ack = 1;
+    AssignmentCommand assignment = 2;
+    ShutdownCommand shutdown = 3;
+    TickBatchAck tick_batch_ack = 4;
+    OfficialBarBatchAck official_bar_batch_ack = 5;
+  }
+}
+
+message TickBatchAck {
+  string batch_id = 1;
+  int32 shard_id = 2;
+  int32 accepted_count = 3;
+  int32 duplicate_count = 4;
+  int32 expired_count = 5;
+  int32 rejected_count = 6;
+  string redis_last_id = 7;
+  AckStage stage = 8;
+  string reason = 9;
+}
+
+message OfficialBarBatchAck {
+  string command_id = 1;
+  string batch_id = 2;
+  int32 accepted_count = 3;
+  int32 duplicate_count = 4;
+  int32 rejected_count = 5;
+  AckStage stage = 6;
+  string reason = 7;
+}
+
+message IngestAck {
+  string worker_id = 1;
+  int64 accepted_count = 2;
+  int64 duplicate_count = 3;
+  int64 rejected_count = 4;
+  string event_id = 5;
+  int64 worker_sequence = 6;
+  AckStage stage = 7;
+  string stream_id = 8;
+  string reason = 9;
+}
+
+enum AckStage {
+  ACK_STAGE_UNSPECIFIED = 0;
+  ACK_STAGE_ACCEPTED = 1;
+  ACK_STAGE_STREAM_APPENDED = 2;
+  ACK_STAGE_REJECTED = 3;
+}
+
+message AssignmentCommand {
+  string assignment_version = 1;
+  repeated string symbols = 2;
+  string frequency = 3;
+}
+
+message ShutdownCommand {
+  string reason = 1;
+  int32 grace_seconds = 2;
+}

@@ -1,0 +1,14 @@
+{
+  "apiBaseUrl": "https://api.example.invalid",
+  "gatewayApiKey": "set-only-in-config.local.json-or-PAIR_TREND_GATEWAY_KEY",
+  "gmToken": "set-only-in-config.local.json-or-ASTOCK_TOKEN",
+  "collectorId": "local-pair-kline-01",
+  "pollSeconds": 20,
+  "heartbeatSeconds": 10,
+  "universeRefreshSeconds": 300,
+  "symbolsPerSdkRequest": 20,
+  "maxPushBars": 2000,
+  "requestTimeoutSeconds": 30,
+  "stateDirectory": "runtime",
+  "provider": "gm"
+}
