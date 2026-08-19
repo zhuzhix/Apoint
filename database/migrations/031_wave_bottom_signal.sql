@@ -82,7 +82,7 @@ INSERT INTO wave_bottom_collection_job(
     event_id,symbol,focused_at,data_end_date,required_daily_bars,
     adjust_mode,algorithm_version,status)
 SELECT id,symbol,focused_at,DATE_SUB(DATE(focused_at),INTERVAL 1 DAY),120,
-       'NONE','pair-wave-bottom-v2','PENDING'
+       'NONE','pair-wave-bottom-v3','PENDING'
 FROM pair_trend_live_event
 WHERE algorithm_version='pair-trend-v3' AND pivot_type='BOTTOM'
   AND focused_at IS NOT NULL

@@ -25,7 +25,7 @@ from typing import Any, Iterable, Sequence
 
 
 ALGORITHM_VERSION = "pair-trend-v3"
-WAVE_ALGORITHM_VERSION = "pair-wave-bottom-v2"
+WAVE_ALGORITHM_VERSION = "pair-wave-bottom-v3"
 SNAPSHOT_VERSION = "offline-gm-v1"
 STRICT_A_SHARE = re.compile(
     r"^(SHSE\.(600|601|603|605|688)|SZSE\.(000|001|002|003|300|301))[0-9]{3}$"

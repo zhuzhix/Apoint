@@ -66,7 +66,7 @@ var summary = new BacktestSummary(
     Sha256(eventPath),
     Sha256(dailyPath),
     eligiblePrimary.Count(static item => item.TrendGatePassed),
-    eligiblePrimary.Count(static item => item.Score >= 70),
+    eligiblePrimary.Count(static item => item.Score >= 60),
     eligiblePrimary.Max(static item => item.Score),
     BuildComponentSummary(eligiblePrimary),
     cohorts);
@@ -248,7 +248,7 @@ static string BuildMarkdown(BacktestSummary summary)
     builder.AppendLine($"- 原始事件：{summary.SourceEvents}");
     builder.AppendLine($"- 独立主样本：{summary.IndependentSamples}，其中完成评分且有20日观察：{summary.EligibleIndependentSamples}");
     builder.AppendLine($"- 数据不足：{summary.InsufficientDataEvents}");
-    builder.AppendLine($"- 趋势门禁通过：{summary.TrendGatePassedSamples}/{summary.EligibleIndependentSamples}；70分以上：{summary.ScoreAtLeast70Samples}；最高分：{summary.MaximumScore}");
+    builder.AppendLine($"- 趋势门禁通过：{summary.TrendGatePassedSamples}/{summary.EligibleIndependentSamples}；达到候选阈值：{summary.ScoreAtLeastCandidateSamples}；最高分：{summary.MaximumScore}");
     builder.AppendLine();
     builder.AppendLine("| 分组 | 样本 | 5日收益中位% | 10日收益中位% | 20日收益中位% | 20日胜率% | MFE20中位% | MAE20中位% | 先涨5%比例% | 20日中位95%CI |");
     builder.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---|");
@@ -370,6 +370,6 @@ sealed record BacktestSummary(
     int InsufficientDataEvents, int EventsWith20Days, int IndependentSamples,
     int EligibleIndependentSamples, DateTime FocusFrom, DateTime FocusTo,
     string EventSnapshotSha256, string DailySnapshotSha256,
-    int TrendGatePassedSamples, int ScoreAtLeast70Samples, int MaximumScore,
+    int TrendGatePassedSamples, int ScoreAtLeastCandidateSamples, int MaximumScore,
     IReadOnlyCollection<ComponentMatchSummary> ComponentMatches,
     IReadOnlyCollection<CohortSummary> Cohorts);

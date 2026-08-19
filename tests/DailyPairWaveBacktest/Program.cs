@@ -113,7 +113,7 @@ var summary = new BacktestSummary(
     independent.Count,
     eligibleIndependent.Length,
     eligibleIndependent.Count(static value => value.TrendGatePassed),
-    eligibleIndependent.Count(static value => value.Score >= 70),
+    eligibleIndependent.Count(static value => value.Score >= 60),
     eligibleIndependent.Length == 0 ? 0 : eligibleIndependent.Max(static value => value.Score),
     Sha256(manifestPath),
     BuildComponentSummary(eligibleIndependent),
@@ -379,7 +379,7 @@ static string BuildReport(BacktestSummary value)
     builder.AppendLine($"- 目标区间历史可用股票日K守恒：{value.EligibleTargetBars}/{value.EligibleTargetBars}");
     builder.AppendLine($"- 日K对子事件：{value.PairEvents}（顶部 {value.TopEvents} / 底部 {value.BottomEvents}）");
     builder.AppendLine($"- 独立底部样本：{value.IndependentSamples}；完成评分且有20日结果：{value.EligibleIndependentSamples}");
-    builder.AppendLine($"- 趋势门禁通过：{value.TrendGatePassedSamples}；70分以上：{value.ScoreAtLeast70Samples}；最高分：{value.MaximumScore}");
+    builder.AppendLine($"- 趋势门禁通过：{value.TrendGatePassedSamples}；达到候选阈值：{value.ScoreAtLeastCandidateSamples}；最高分：{value.MaximumScore}");
     builder.AppendLine();
     builder.AppendLine("| 分组 | 样本 | 5日中位% | 10日中位% | 20日中位% | 20日均值% | 20日胜率% | MFE20中位% | MAE20中位% | 先涨5%比例% |");
     builder.AppendLine("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|");
@@ -597,7 +597,7 @@ sealed record BacktestSummary(
     int IndependentSamples,
     int EligibleIndependentSamples,
     int TrendGatePassedSamples,
-    int ScoreAtLeast70Samples,
+    int ScoreAtLeastCandidateSamples,
     int MaximumScore,
     string SnapshotManifestSha256,
     IReadOnlyCollection<ComponentSummary> ComponentMatches,

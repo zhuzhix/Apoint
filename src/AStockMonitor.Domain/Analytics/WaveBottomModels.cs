@@ -4,13 +4,13 @@ namespace AStockMonitor.Domain.Analytics;
 
 public sealed record WaveBottomOptions
 {
-    public const string CurrentAlgorithmVersion = "pair-wave-bottom-v2";
+    public const string CurrentAlgorithmVersion = "pair-wave-bottom-v3";
 
     public string AlgorithmVersion { get; init; } = CurrentAlgorithmVersion;
     public int RequiredDailyBars { get; init; } = 120;
     public int MinimumDailyBars { get; init; } = 60;
-    public int CandidateThreshold { get; init; } = 70;
-    public int StrongThreshold { get; init; } = 85;
+    public int CandidateThreshold { get; init; } = 60;
+    public int StrongThreshold { get; init; } = 75;
 
     public void Validate()
     {
