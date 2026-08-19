@@ -372,12 +372,18 @@ Require(queryServiceSource.Contains(
     "分页后最新事件定位必须复用完整筛选口径并限定当前股票组及其最新顶底时间。");
 Require(queryServiceSource.Contains(
         "LEFT JOIN LATERAL (", StringComparison.Ordinal) &&
-    queryServiceSource.Contains("FROM pair_trend_query_event e FORCE INDEX (ix_pair_trend_query_period)", StringComparison.Ordinal) &&
+    queryServiceSource.Contains("\"ix_pair_trend_query_period\"", StringComparison.Ordinal) &&
+    queryServiceSource.Contains("\"ix_pair_trend_query_wave_signal\"", StringComparison.Ordinal) &&
+    queryServiceSource.Contains("FORCE INDEX ({{projectionIndex}})", StringComparison.Ordinal) &&
     queryServiceSource.Contains("FORCE INDEX (ix_pair_trend_query_symbol_period)", StringComparison.Ordinal) &&
     queryServiceSource.Contains("ORDER BY latest_candidate.event_id DESC", StringComparison.Ordinal) &&
     queryServiceSource.Contains("frequency_mask & @FrequencyMask", StringComparison.Ordinal) &&
     queryServiceSource.Contains(") latest ON TRUE", StringComparison.Ordinal),
     "正式投影必须通过覆盖日期索引、位掩码和LATERAL按事件ID稳定定位。");
+Require(queryServiceSource.Contains("wave_signal IN ('CANDIDATE','STRONG')", StringComparison.Ordinal) &&
+    queryServiceSource.Contains("MaxWaveScore", StringComparison.Ordinal) &&
+    queryServiceSource.Contains("EventOrderSql(query", StringComparison.Ordinal),
+    "波段筛选、组内最高分和分页前分数排序必须由后端查询统一执行。");
 Require(queryServiceSource.Contains("BuildStockGroupSqlForAudit(query)", StringComparison.Ordinal),
     "正式执行路径必须使用可审计的股票分组SQL方法。");
 Require(queryServiceSource.Contains("rows.Length > 0", StringComparison.Ordinal) &&

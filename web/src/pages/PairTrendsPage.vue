@@ -34,9 +34,17 @@ function defaultDateRange(): [string, string] {
   return [formatDateValue(from), formatDateValue(to)]
 }
 function textQuery(value: unknown, fallback = '') { return typeof value === 'string' ? value : fallback }
+function waveSignalQuery(value: unknown): 'SIGNALLED' | 'CANDIDATE' | 'STRONG' | undefined {
+  const normalized = textQuery(value).toUpperCase()
+  return normalized === 'SIGNALLED' || normalized === 'CANDIDATE' || normalized === 'STRONG' ? normalized : undefined
+}
 function positiveInt(value: unknown, fallback: number) {
   const parsed = Number(value)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
+}
+function sortModeFromQuery() {
+  if (textQuery(route.query.sortBy).toUpperCase() !== 'WAVE_SCORE') return 'PIVOT_DESC'
+  return textQuery(route.query.sortDirection).toUpperCase() === 'ASC' ? 'WAVE_ASC' : 'WAVE_DESC'
 }
 
 const context = computed<PairTrendViewContext>(() => route.meta.pairContext === 'history-data' ? 'history-data' : 'intraday')
@@ -48,7 +56,8 @@ const initialRange = defaultDateRange()
 const filterForm = reactive({
   keyword: textQuery(route.query.keyword), pivotType: textQuery(route.query.pivotType),
   stageAtEnd: textQuery(route.query.stageAtEnd), frequency: textQuery(route.query.frequency),
-  activeAtEnd: textQuery(route.query.activeAtEnd),
+  activeAtEnd: textQuery(route.query.activeAtEnd), waveSignal: textQuery(route.query.waveSignal),
+  sortMode: sortModeFromQuery(),
 })
 const dateRange = ref<[string, string]>([
   textQuery(route.query.dateFrom, initialRange[0]), textQuery(route.query.dateTo, initialRange[1]),
@@ -64,6 +73,10 @@ const activeFilters = computed(() => ({
   keyword: textQuery(route.query.keyword), pivotType: textQuery(route.query.pivotType),
   stageAtEnd: textQuery(route.query.stageAtEnd), frequency: textQuery(route.query.frequency),
   activeAtEnd: route.query.activeAtEnd === 'true' ? true : route.query.activeAtEnd === 'false' ? false : undefined,
+  waveSignal: waveSignalQuery(route.query.waveSignal),
+  sortBy: textQuery(route.query.sortBy).toUpperCase() === 'WAVE_SCORE' ? 'WAVE_SCORE' as const : undefined,
+  sortDirection: textQuery(route.query.sortBy).toUpperCase() === 'WAVE_SCORE'
+    ? (textQuery(route.query.sortDirection).toUpperCase() === 'ASC' ? 'ASC' as const : 'DESC' as const) : undefined,
   ...(isIntraday.value ? {} : {
     dateFrom: textQuery(route.query.dateFrom, initialRange[0]), dateTo: textQuery(route.query.dateTo, initialRange[1]),
   }),
@@ -101,11 +114,12 @@ const groupColumns = [
   { title: '股票', key: 'stock', width: 170 }, { title: '最新顶底', key: 'latestPivotAt', width: 180 },
   { title: '最新顶部', key: 'latestTopAt', width: 160 }, { title: '最新底部', key: 'latestBottomAt', width: 160 },
   { title: '顶底数量', key: 'directions', width: 180 }, { title: '状态', key: 'states', width: 170 },
+  { title: '最高波段分数', key: 'maxWaveScore', width: 126 },
   { title: '合计', dataIndex: 'eventCount', key: 'eventCount', width: 72 },
 ]
 const hasActiveFilter = computed(() => Boolean(
   activeFilters.value.keyword || activeFilters.value.pivotType || activeFilters.value.stageAtEnd
-  || activeFilters.value.frequency || activeFilters.value.activeAtEnd !== undefined,
+  || activeFilters.value.frequency || activeFilters.value.activeAtEnd !== undefined || activeFilters.value.waveSignal,
 ))
 const watermarkFrequencies = ['5m', '30m', '60m', '1d'] as const
 const sessionLabel = computed(() => ({
@@ -122,7 +136,8 @@ const intradayEmpty = computed(() => {
 function syncDraftFromRoute() {
   filterForm.keyword = textQuery(route.query.keyword); filterForm.pivotType = textQuery(route.query.pivotType)
   filterForm.stageAtEnd = textQuery(route.query.stageAtEnd); filterForm.frequency = textQuery(route.query.frequency)
-  filterForm.activeAtEnd = textQuery(route.query.activeAtEnd)
+  filterForm.activeAtEnd = textQuery(route.query.activeAtEnd); filterForm.waveSignal = textQuery(route.query.waveSignal)
+  filterForm.sortMode = sortModeFromQuery()
   if (!isIntraday.value) dateRange.value = [textQuery(route.query.dateFrom, initialRange[0]), textQuery(route.query.dateTo, initialRange[1])]
 }
 watch(() => route.query, syncDraftFromRoute, { deep: true })
@@ -148,12 +163,16 @@ function applyFilters() {
     keyword: filterForm.keyword.trim() || undefined, pivotType: filterForm.pivotType || undefined,
     stageAtEnd: filterForm.stageAtEnd || undefined, frequency: filterForm.frequency || undefined,
     activeAtEnd: filterForm.activeAtEnd || undefined,
+    waveSignal: filterForm.waveSignal || undefined,
+    sortBy: filterForm.sortMode === 'PIVOT_DESC' ? undefined : 'WAVE_SCORE',
+    sortDirection: filterForm.sortMode === 'WAVE_ASC' ? 'ASC' : filterForm.sortMode === 'WAVE_DESC' ? 'DESC' : undefined,
     dateFrom: isIntraday.value ? undefined : dateRange.value[0], dateTo: isIntraday.value ? undefined : dateRange.value[1],
   } })
 }
 function resetFilters() {
   const range = defaultDateRange()
   filterForm.keyword = ''; filterForm.pivotType = ''; filterForm.stageAtEnd = ''; filterForm.frequency = ''; filterForm.activeAtEnd = ''
+  filterForm.waveSignal = ''; filterForm.sortMode = 'PIVOT_DESC'
   dateRange.value = range; applyFilters()
 }
 function emptyTitle(defaultTitle: string) { return hasActiveFilter.value ? '当前筛选无结果' : defaultTitle }
@@ -239,6 +258,15 @@ onBeforeUnmount(() => {
           {label:'重点',value:'FOCUS'},{label:'成立',value:'ESTABLISHED'},{label:'失效',value:'INVALIDATED'},
         ]" />
         <a-select v-model:value="filterForm.activeAtEnd" class="validity-select" :options="[{label:'全部有效性',value:''},{label:'有效',value:'true'},{label:'已失效',value:'false'}]" />
+        <a-select v-model:value="filterForm.waveSignal" class="wave-filter-select" :options="[
+          {label:'全部波段信号',value:''},{label:'有信号',value:'SIGNALLED'},
+          {label:'候选',value:'CANDIDATE'},{label:'强确认',value:'STRONG'},
+        ]" />
+        <a-select v-model:value="filterForm.sortMode" class="wave-sort-select" :options="[
+          {label:'顶底日期倒序',value:'PIVOT_DESC'},
+          {label:'波段分数从高到低',value:'WAVE_DESC'},
+          {label:'波段分数从低到高',value:'WAVE_ASC'},
+        ]" />
         <a-range-picker v-if="!isIntraday" v-model:value="dateRange" value-format="YYYY-MM-DD" format="YYYY-MM-DD"
           :allow-clear="false" :placeholder="['开始日期','结束日期']" class="date-range" />
         <a-button type="primary" :loading="groupsQuery.isFetching.value || eventsQuery.isFetching.value" @click="applyFilters">查询</a-button>
@@ -276,7 +304,7 @@ onBeforeUnmount(() => {
         <a-table v-if="!isMobile"
           :columns="groupColumns" :data-source="groupsQuery.data.value?.groups ?? []" :loading="groupsQuery.isLoading.value"
           :pagination="false" :expanded-row-keys="expandedSymbols" row-key="symbol" class="market-table pair-group-table pair-group-desktop"
-          :scroll="{ x: 1180 }" @expand="handleExpand">
+          :scroll="{ x: 1320 }" @expand="handleExpand">
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'stock'"><div class="stock-cell"><strong>{{ record.symbolName || record.symbol }}</strong><span>{{ record.symbol }}</span></div></template>
             <template v-else-if="column.key === 'latestPivotAt'"><span class="numeric">{{ formatTime(record.latestPivotAt) }}</span><small class="latest-stage">{{ label(record.latestStageAtEnd) }}</small></template>
@@ -284,6 +312,7 @@ onBeforeUnmount(() => {
             <template v-else-if="column.key === 'latestBottomAt'"><span class="numeric pair-price-bottom">{{ record.latestBottomAt ? formatTime(record.latestBottomAt) : '—' }}</span></template>
             <template v-else-if="column.key === 'directions'"><a-tag class="pair-top">顶部 {{ record.topCount }}</a-tag><a-tag class="pair-bottom">底部 {{ record.bottomCount }}</a-tag></template>
             <template v-else-if="column.key === 'states'"><span class="group-state active">有效 {{ record.activeAtEndCount }}</span><span class="group-state invalidated">失效 {{ record.invalidatedAtEndCount }}</span></template>
+            <template v-else-if="column.key === 'maxWaveScore'"><strong class="numeric wave-group-score">{{ record.maxWaveScore ?? '—' }}</strong></template>
           </template>
           <template #expandedRowRender="{ record }">
             <div class="group-events-panel">
@@ -311,6 +340,7 @@ onBeforeUnmount(() => {
                 <div><span>最新底部</span><strong class="numeric pair-price-bottom">{{ record.latestBottomAt ? formatTime(record.latestBottomAt) : '—' }}</strong></div>
                 <div><span>顶 / 底</span><strong>{{ record.topCount }} / {{ record.bottomCount }}</strong></div>
                 <div><span>有效 / 失效</span><strong>{{ record.activeAtEndCount }} / {{ record.invalidatedAtEndCount }}</strong></div>
+                <div><span>最高波段分数</span><strong class="numeric wave-group-score">{{ record.maxWaveScore ?? '—' }}</strong></div>
               </div>
             </button>
             <div v-if="expandedSymbols.includes(record.symbol)" class="group-events-panel mobile-group-events">
@@ -352,7 +382,9 @@ onBeforeUnmount(() => {
 .pair-source-tabs button:hover:not(:disabled) { color:#dce4ef; background:#172338; }.pair-source-tabs button.active { color:#fff; background:#6759d1; }
 .pair-source-tabs button:disabled { color:#4f5d72; cursor:not-allowed; }.page-alert { margin-bottom:16px; }.pair-filter-bar { align-items:flex-start; }
 .pair-filter-controls { max-width:1120px; flex-wrap:wrap; justify-content:flex-end; }.stock-search { width:200px; }.filter-select { width:116px; }
-.frequency-select { width:108px; }.stage-select { width:124px; }.validity-select { width:124px; }.date-range { width:250px; }
+.frequency-select { width:108px; }.stage-select { width:124px; }.validity-select { width:124px; }
+.wave-filter-select { width:132px; }.wave-sort-select { width:172px; }.date-range { width:250px; }
+.wave-group-score { color:#dce4ef; }
 .intraday-watermarks { margin:0 0 16px; padding:14px; border:1px solid #243248; border-radius:10px; background:#0f1929; }
 .intraday-watermarks header { display:flex; align-items:center; justify-content:space-between; gap:14px; }.intraday-watermarks header span { margin-right:8px; color:#71829a; font-size:11px; }
 .intraday-watermarks header strong { color:#dce4ef; }.intraday-watermarks header time { color:#71829a; font-size:11px; }

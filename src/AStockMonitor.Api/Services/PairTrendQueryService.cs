@@ -161,6 +161,7 @@ public sealed class PairTrendQueryService(
         parameters.Add("PageSize", pageSize);
         var conditions = BuildConditions(query, includeKeyword: true);
         var where = string.Join(" AND ", conditions);
+        var orderBy = EventOrderSql(query, "e");
         await using var connection = connectionFactory.Create();
         await connection.OpenAsync(cancellationToken);
         await connection.ExecuteAsync(new CommandDefinition(
@@ -177,7 +178,7 @@ public sealed class PairTrendQueryService(
             $$"""
             {{TimelineSelectSql}}
             WHERE {{where}}
-            ORDER BY e.root_5m_eob DESC,e.id DESC
+            ORDER BY {{orderBy}}
             LIMIT @PageSize OFFSET @Offset;
             """,
             parameters,
@@ -219,6 +220,9 @@ public sealed class PairTrendQueryService(
         }
         if (!string.IsNullOrWhiteSpace(query.StageAtEnd))
             parameters.Add("StageAtEnd", query.StageAtEnd.Trim().ToUpperInvariant());
+        if (!string.IsNullOrWhiteSpace(query.WaveSignal) &&
+            NormalizeWaveSignal(query.WaveSignal) is not "SIGNALLED")
+            parameters.Add("WaveSignal", NormalizeWaveSignal(query.WaveSignal));
         if (query is PairTrendEventQuery { Symbol: { } symbol } && !string.IsNullOrWhiteSpace(symbol))
             parameters.Add("Symbol", symbol.Trim().ToUpperInvariant());
         return parameters;
@@ -241,7 +245,10 @@ public sealed class PairTrendQueryService(
             query.Frequency is null ? string.Empty : NormalizeFrequency(query.Frequency),
             query.StageAtEnd?.Trim().ToUpperInvariant() ?? string.Empty,
             query.ActiveAtEnd?.ToString() ?? string.Empty,
-            query.IncludeInvalidated);
+            query.IncludeInvalidated,
+            query.WaveSignal is null ? string.Empty : NormalizeWaveSignal(query.WaveSignal),
+            NormalizeSortBy(query.SortBy),
+            NormalizeSortDirection(query.SortDirection));
     }
 
     private static List<string> BuildConditions(
@@ -276,6 +283,13 @@ public sealed class PairTrendQueryService(
                 : $"({stageAtEnd})='INVALIDATED'");
         else if (!query.IncludeInvalidated)
             conditions.Add($"({stageAtEnd})<>'INVALIDATED'");
+        if (!string.IsNullOrWhiteSpace(query.WaveSignal))
+        {
+            conditions.Add($"{alias}.wave_calculation_status='COMPLETED'");
+            conditions.Add(NormalizeWaveSignal(query.WaveSignal) == "SIGNALLED"
+                ? $"{alias}.wave_signal IN ('CANDIDATE','STRONG')"
+                : $"{alias}.wave_signal=@WaveSignal");
+        }
         if (query is PairTrendEventQuery { Symbol: { } symbol } && !string.IsNullOrWhiteSpace(symbol))
             conditions.Add($"{alias}.symbol=@Symbol");
         return conditions;
@@ -293,6 +307,13 @@ public sealed class PairTrendQueryService(
         if (!string.IsNullOrWhiteSpace(query.Frequency) &&
             NormalizeFrequency(query.Frequency) is not ("5m" or "30m" or "60m" or "1d"))
             throw new ArgumentException("frequency is invalid.");
+        if (!string.IsNullOrWhiteSpace(query.WaveSignal) &&
+            NormalizeWaveSignal(query.WaveSignal) is not ("SIGNALLED" or "CANDIDATE" or "STRONG"))
+            throw new ArgumentException("waveSignal must be SIGNALLED, CANDIDATE or STRONG.");
+        if (NormalizeSortBy(query.SortBy) is not ("PIVOT_AT" or "WAVE_SCORE"))
+            throw new ArgumentException("sortBy must be PIVOT_AT or WAVE_SCORE.");
+        if (NormalizeSortDirection(query.SortDirection) is not ("ASC" or "DESC"))
+            throw new ArgumentException("sortDirection must be ASC or DESC.");
     }
 
     private static void RequireEnabled(bool enabled, string code)
@@ -337,6 +358,10 @@ public sealed class PairTrendQueryService(
         ValidateFilters(query);
         var conditions = BuildConditions(query, includeKeyword: true, useFrequencyMask: true);
         var where = string.Join(" AND ", conditions);
+        var groupOrder = GroupOrderSql(query);
+        var projectionIndex = string.IsNullOrWhiteSpace(query.WaveSignal)
+            ? "ix_pair_trend_query_period"
+            : "ix_pair_trend_query_wave_signal";
         var latestConditions = BuildConditions(
             query, includeKeyword: true, alias: "latest_candidate", useFrequencyMask: true);
         latestConditions.Add("latest_candidate.symbol=paged.symbol");
@@ -345,8 +370,9 @@ public sealed class PairTrendQueryService(
         return $$"""
             WITH filtered AS (
                 SELECT e.symbol,e.root_5m_eob,e.pivot_type,
+                       e.wave_calculation_status,e.wave_score,
                        ({{StageAtEndSql("e")}}) stage_at_end
-                FROM pair_trend_query_event e FORCE INDEX (ix_pair_trend_query_period)
+                FROM pair_trend_query_event e FORCE INDEX ({{projectionIndex}})
                 WHERE {{where}}
             ), grouped AS (
                 SELECT symbol,
@@ -356,20 +382,23 @@ public sealed class PairTrendQueryService(
                    COUNT(*) EventCount,SUM(pivot_type='TOP') TopCount,
                    SUM(pivot_type='BOTTOM') BottomCount,
                    SUM(stage_at_end<>'INVALIDATED') ActiveAtEndCount,
-                   SUM(stage_at_end='INVALIDATED') InvalidatedAtEndCount
+                   SUM(stage_at_end='INVALIDATED') InvalidatedAtEndCount,
+                   MAX(CASE WHEN wave_calculation_status='COMPLETED'
+                            THEN wave_score END) MaxWaveScore
                 FROM filtered
                 GROUP BY symbol
             ), paged AS (
                 SELECT grouped.*,COUNT(*) OVER() TotalGroups
                 FROM grouped
-                ORDER BY LatestPivotAt DESC,symbol ASC
+                ORDER BY {{groupOrder}}
                 LIMIT @PageSize OFFSET @Offset
             )
             SELECT paged.TotalGroups,paged.symbol Symbol,latest.symbol_name SymbolName,
                    paged.LatestPivotAt,paged.LatestTopAt,paged.LatestBottomAt,
                    ({{StageAtEndSql("latest")}}) LatestStageAtEnd,
                    paged.EventCount,paged.TopCount,paged.BottomCount,
-                   paged.ActiveAtEndCount,paged.InvalidatedAtEndCount
+                   paged.ActiveAtEndCount,paged.InvalidatedAtEndCount,
+                   paged.MaxWaveScore
             FROM paged
             LEFT JOIN LATERAL (
                 SELECT latest_candidate.symbol_name,latest_candidate.invalidated_at,
@@ -381,7 +410,7 @@ public sealed class PairTrendQueryService(
                 ORDER BY latest_candidate.event_id DESC
                 LIMIT 1
             ) latest ON TRUE
-            ORDER BY paged.LatestPivotAt DESC,paged.symbol ASC;
+            ORDER BY {{GroupOrderSql(query, "paged.")}};
             """;
     }
 
@@ -390,6 +419,7 @@ public sealed class PairTrendQueryService(
         ValidateFilters(query);
         var conditions = BuildConditions(query, includeKeyword: true);
         var where = string.Join(" AND ", conditions);
+        var groupOrder = GroupOrderSql(query);
         var latestConditions = BuildConditions(query, includeKeyword: true, alias: "latest_candidate");
         latestConditions.Add("latest_candidate.symbol=paged.symbol");
         latestConditions.Add("latest_candidate.root_5m_eob=paged.LatestPivotAt");
@@ -397,6 +427,7 @@ public sealed class PairTrendQueryService(
         return $$"""
             WITH filtered AS (
                 SELECT e.symbol,e.root_5m_eob,e.pivot_type,
+                       e.wave_calculation_status,e.wave_score,
                        ({{StageAtEndSql("e")}}) stage_at_end
                 FROM pair_trend_live_event e
                 WHERE {{where}}
@@ -408,20 +439,23 @@ public sealed class PairTrendQueryService(
                    COUNT(*) EventCount,SUM(pivot_type='TOP') TopCount,
                    SUM(pivot_type='BOTTOM') BottomCount,
                    SUM(stage_at_end<>'INVALIDATED') ActiveAtEndCount,
-                   SUM(stage_at_end='INVALIDATED') InvalidatedAtEndCount
+                   SUM(stage_at_end='INVALIDATED') InvalidatedAtEndCount,
+                   MAX(CASE WHEN wave_calculation_status='COMPLETED'
+                            THEN wave_score END) MaxWaveScore
                 FROM filtered
                 GROUP BY symbol
             ), paged AS (
                 SELECT grouped.*,COUNT(*) OVER() TotalGroups
                 FROM grouped
-                ORDER BY LatestPivotAt DESC,symbol ASC
+                ORDER BY {{groupOrder}}
                 LIMIT @PageSize OFFSET @Offset
             )
             SELECT paged.TotalGroups,paged.symbol Symbol,latest.symbol_name SymbolName,
                    paged.LatestPivotAt,paged.LatestTopAt,paged.LatestBottomAt,
                    ({{StageAtEndSql("latest")}}) LatestStageAtEnd,
                    paged.EventCount,paged.TopCount,paged.BottomCount,
-                   paged.ActiveAtEndCount,paged.InvalidatedAtEndCount
+                   paged.ActiveAtEndCount,paged.InvalidatedAtEndCount,
+                   paged.MaxWaveScore
             FROM paged
             LEFT JOIN LATERAL (
                 SELECT latest_candidate.symbol_name,latest_candidate.invalidated_at,
@@ -433,7 +467,7 @@ public sealed class PairTrendQueryService(
                 ORDER BY latest_candidate.id DESC
                 LIMIT 1
             ) latest ON TRUE
-            ORDER BY paged.LatestPivotAt DESC,paged.symbol ASC;
+            ORDER BY {{GroupOrderSql(query, "paged.")}};
             """;
     }
 
@@ -447,11 +481,14 @@ public sealed class PairTrendQueryService(
         ValidateFilters(query);
         var conditions = BuildConditions(query, includeKeyword: true, useFrequencyMask: true);
         var where = string.Join(" AND ", conditions);
+        var projectionIndex = string.IsNullOrWhiteSpace(query.WaveSignal)
+            ? "ix_pair_trend_query_period"
+            : "ix_pair_trend_query_wave_signal";
         return $$"""
             SELECT COUNT(*)
             FROM (
                 SELECT e.symbol
-                FROM pair_trend_query_event e FORCE INDEX (ix_pair_trend_query_period)
+                FROM pair_trend_query_event e FORCE INDEX ({{projectionIndex}})
                 WHERE {{where}}
                 GROUP BY e.symbol
             ) grouped_count;
@@ -502,6 +539,32 @@ public sealed class PairTrendQueryService(
         _ => throw new ArgumentException("frequency is invalid.")
     };
 
+    private static string NormalizeWaveSignal(string value) => value.Trim().ToUpperInvariant();
+
+    private static string NormalizeSortBy(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "PIVOT_AT" : value.Trim().ToUpperInvariant();
+
+    private static string NormalizeSortDirection(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? "DESC" : value.Trim().ToUpperInvariant();
+
+    private static string EventOrderSql(PairTrendGroupQuery query, string alias)
+    {
+        if (NormalizeSortBy(query.SortBy) != "WAVE_SCORE")
+            return $"{alias}.root_5m_eob DESC,{alias}.id DESC";
+        var direction = NormalizeSortDirection(query.SortDirection);
+        return $"({alias}.wave_calculation_status='COMPLETED' AND {alias}.wave_score IS NOT NULL) DESC," +
+               $"{alias}.wave_score {direction},{alias}.root_5m_eob DESC,{alias}.id DESC";
+    }
+
+    private static string GroupOrderSql(PairTrendGroupQuery query, string prefix = "")
+    {
+        if (NormalizeSortBy(query.SortBy) != "WAVE_SCORE")
+            return $"{prefix}LatestPivotAt DESC,{prefix}symbol ASC";
+        var direction = NormalizeSortDirection(query.SortDirection);
+        return $"{prefix}MaxWaveScore IS NULL ASC,{prefix}MaxWaveScore {direction}," +
+               $"{prefix}LatestPivotAt DESC,{prefix}symbol ASC";
+    }
+
     private static async Task EnsureV3RootIntegrityAsync(
         System.Data.Common.DbConnection connection,
         System.Data.Common.DbTransaction? transaction,
@@ -542,6 +605,7 @@ public sealed class PairTrendQueryService(
         public long BottomCount { get; init; }
         public long ActiveAtEndCount { get; init; }
         public long InvalidatedAtEndCount { get; init; }
+        public int? MaxWaveScore { get; init; }
 
         public PairTrendStockGroupDto ToDto() => new()
         {
@@ -555,7 +619,8 @@ public sealed class PairTrendQueryService(
             TopCount = TopCount,
             BottomCount = BottomCount,
             ActiveAtEndCount = ActiveAtEndCount,
-            InvalidatedAtEndCount = InvalidatedAtEndCount
+            InvalidatedAtEndCount = InvalidatedAtEndCount,
+            MaxWaveScore = MaxWaveScore
         };
     }
 }

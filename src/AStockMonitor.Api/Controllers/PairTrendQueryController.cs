@@ -98,6 +98,9 @@ public sealed class PairTrendQueryController(
         Frequency = query.Frequency,
         StageAtEnd = query.StageAtEnd,
         ActiveAtEnd = query.ActiveAtEnd,
+        WaveSignal = query.WaveSignal,
+        SortBy = query.SortBy,
+        SortDirection = query.SortDirection,
         IncludeInvalidated = true
     };
 
@@ -110,6 +113,9 @@ public sealed class PairTrendQueryController(
         Frequency = query.Frequency,
         StageAtEnd = query.StageAtEnd,
         ActiveAtEnd = query.ActiveAtEnd,
+        WaveSignal = query.WaveSignal,
+        SortBy = query.SortBy,
+        SortDirection = query.SortDirection,
         IncludeInvalidated = true,
         Symbol = query.Symbol
     };
@@ -125,6 +131,9 @@ public sealed class PairTrendQueryController(
         Frequency = query.Frequency,
         StageAtEnd = query.StageAtEnd,
         ActiveAtEnd = query.ActiveAtEnd,
+        WaveSignal = query.WaveSignal,
+        SortBy = query.SortBy,
+        SortDirection = query.SortDirection,
         IncludeInvalidated = query.IncludeInvalidated,
         Symbol = symbol
     };

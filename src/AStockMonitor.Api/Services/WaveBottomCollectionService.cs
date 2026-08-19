@@ -14,6 +14,7 @@ namespace AStockMonitor.Api.Services;
 /// </summary>
 public sealed class WaveBottomCollectionService(
     IMySqlConnectionFactory connectionFactory,
+    PairTrendQueryCache queryCache,
     ILogger<WaveBottomCollectionService> logger)
 {
     public const int MaximumSymbolsPerClaim = 200;
@@ -370,6 +371,7 @@ public sealed class WaveBottomCollectionService(
                     WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
                 }, transaction, cancellationToken: cancellationToken));
             await transaction.CommitAsync(cancellationToken);
+            queryCache.Invalidate();
             logger.LogInformation("波段历史任务 {JobId}/{Symbol} 因事件状态变化已跳过。",
                 job.JobId, job.Symbol);
             return false;
@@ -392,6 +394,7 @@ public sealed class WaveBottomCollectionService(
         if (jobAffected != 1)
             throw new InvalidOperationException($"波段任务 {job.JobId} 租约已失效，拒绝提交评分。" );
         await transaction.CommitAsync(cancellationToken);
+        queryCache.Invalidate();
         return true;
     }
 

@@ -28,6 +28,7 @@ public sealed class PairTrendStockGroupDto
     public long BottomCount { get; init; }
     public long ActiveAtEndCount { get; init; }
     public long InvalidatedAtEndCount { get; init; }
+    public int? MaxWaveScore { get; init; }
 }
 
 public sealed record PairTrendTimelinePage(
@@ -92,6 +93,9 @@ public class PairTrendGroupQuery
     public string? StageAtEnd { get; init; }
     public bool? ActiveAtEnd { get; init; }
     public bool IncludeInvalidated { get; init; } = true;
+    public string? WaveSignal { get; init; }
+    public string? SortBy { get; init; }
+    public string? SortDirection { get; init; }
 }
 
 public sealed class PairTrendEventQuery : PairTrendGroupQuery

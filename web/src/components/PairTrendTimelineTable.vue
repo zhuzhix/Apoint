@@ -21,17 +21,12 @@ onMounted(() => {
 })
 onBeforeUnmount(() => mobileMediaQuery?.removeEventListener('change', handleViewportChange))
 
-function waveSignal(record: PairTrendTimelineEvent) {
-  if (record.pivotType !== 'BOTTOM') return { text: '—', tone: 'muted' }
-  if (record.waveCalculationStatus === 'PENDING') return { text: '等待计算', tone: 'pending' }
-  if (record.waveCalculationStatus === 'COLLECTING') return { text: '获取日K', tone: 'pending' }
-  if (record.waveCalculationStatus === 'INSUFFICIENT_DATA') return { text: '数据不足', tone: 'muted' }
-  if (record.waveCalculationStatus === 'FAILED') return { text: '计算失败', tone: 'failed' }
-  if (record.waveCalculationStatus !== 'COMPLETED') return { text: '—', tone: 'muted' }
-  const score = record.waveScore ?? 0
-  if (record.waveSignal === 'STRONG') return { text: `较强确认 ${score}`, tone: 'strong' }
-  if (record.waveSignal === 'CANDIDATE') return { text: `底部候选 ${score}`, tone: 'candidate' }
-  return { text: `无信号 ${score}`, tone: 'muted' }
+function waveScore(record: PairTrendTimelineEvent) {
+  if (record.pivotType !== 'BOTTOM' || record.waveCalculationStatus !== 'COMPLETED' || record.waveScore == null)
+    return { text: '—', tone: 'muted', title: '暂无有效波段分数' }
+  if (record.waveSignal === 'STRONG') return { text: String(record.waveScore), tone: 'strong', title: '强确认' }
+  if (record.waveSignal === 'CANDIDATE') return { text: String(record.waveScore), tone: 'candidate', title: '候选' }
+  return { text: String(record.waveScore), tone: 'muted', title: '未形成波段信号' }
 }
 
 const columns = [
@@ -42,7 +37,7 @@ const columns = [
   { title: '周期', dataIndex: 'frequencies', key: 'frequencies', width: 126 },
   { title: '截至结束日', key: 'stageAtEnd', width: 118 },
   { title: '当前状态', key: 'currentStage', width: 118 },
-  { title: '波段信号', key: 'waveSignal', width: 126 },
+  { title: '波段分数', key: 'waveSignal', width: 100 },
   { title: '失效时间', key: 'invalidatedAt', width: 156 },
   { title: '失效原因', key: 'invalidationReason', width: 180 },
   { title: '', key: 'actions', width: 68 },
@@ -83,7 +78,7 @@ const columns = [
         <small class="state-validity">{{ record.currentIsActive ? '有效' : '失效' }}</small>
       </template>
       <template v-else-if="column.key === 'waveSignal'">
-        <span class="wave-signal" :class="`wave-${waveSignal(record).tone}`">{{ waveSignal(record).text }}</span>
+        <span class="wave-signal numeric" :class="`wave-${waveScore(record).tone}`" :title="waveScore(record).title">{{ waveScore(record).text }}</span>
       </template>
       <template v-else-if="column.key === 'invalidatedAt'">
         <span class="numeric muted">{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '—' }}</span>
@@ -108,7 +103,7 @@ const columns = [
         <div><span>周期</span><strong>{{ record.frequencies }}</strong></div>
         <div><span>截至结束日</span><strong>{{ label(record.stageAtEnd) }} · {{ record.isActiveAtEnd ? '有效' : '失效' }}</strong></div>
         <div><span>当前状态</span><strong>{{ label(record.currentStage) }} · {{ record.currentIsActive ? '有效' : '失效' }}</strong></div>
-        <div><span>波段信号</span><strong class="wave-signal" :class="`wave-${waveSignal(record).tone}`">{{ waveSignal(record).text }}</strong></div>
+        <div><span>波段分数</span><strong class="wave-signal numeric" :class="`wave-${waveScore(record).tone}`" :title="waveScore(record).title">{{ waveScore(record).text }}</strong></div>
       </div>
       <div v-if="record.invalidatedAt || record.invalidationReason" class="pair-event-invalidated">
         <span>{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '已失效' }}</span>
@@ -128,8 +123,6 @@ const columns = [
 .wave-signal { display:inline-flex; align-items:center; min-height:22px; padding:2px 8px; border-radius:999px; font-size:11px; white-space:nowrap; }
 .wave-strong { color:#ffec8b; background:rgba(250,173,20,.18); }
 .wave-candidate { color:#91d5ff; background:rgba(24,144,255,.16); }
-.wave-pending { color:#d3adf7; background:rgba(114,46,209,.18); }
-.wave-failed { color:#ff7875; background:rgba(245,34,45,.16); }
 .wave-muted { color:#8291a6; background:rgba(130,145,166,.10); }
 @media (max-width:720px) {
   .pair-timeline-mobile { display:grid; gap:10px; }

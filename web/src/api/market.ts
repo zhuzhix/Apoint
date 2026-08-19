@@ -24,6 +24,9 @@ export interface PairTrendGroupedFilters {
   stageAtEnd?: string
   frequency?: string
   activeAtEnd?: boolean
+  waveSignal?: 'SIGNALLED' | 'CANDIDATE' | 'STRONG'
+  sortBy?: 'PIVOT_AT' | 'WAVE_SCORE'
+  sortDirection?: 'ASC' | 'DESC'
   dateFrom?: string
   dateTo?: string
 }

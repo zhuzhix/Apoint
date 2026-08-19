@@ -125,6 +125,7 @@ export interface PairTrendStockGroup {
   bottomCount: number
   activeAtEndCount: number
   invalidatedAtEndCount: number
+  maxWaveScore?: number
 }
 
 export interface PairTrendStockGroupPage {
