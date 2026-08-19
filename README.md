@@ -19,7 +19,7 @@ Windows 环境下的 A 股实时行情与历史 K 线数据底座。
 - 启动、K 线边界、盘中滚动和收盘四类缺口检测与自动补数；
 - 缺失、重复、OHLC、成交量、时段、来源和完整性检查；
 - 包含 `.00` 的盘中对子顶底实时扫描、修订重算、多周期归并与分页 API；
-- 底部事件达到 `FOCUS` 后，由独立 Python 进程按需采集此前 120 个交易日日 K，WebAPI 在内存中计算 0～100 波段信号并写回事件；
+- 有效底部事件达到 `FOCUS` 后，由独立 Python 进程按需采集此前 120 个交易日日 K，WebAPI 使用 `pair-wave-bottom-v2` 在内存中计算 0～90 分波段信号（候选 60～74，强确认 75～90）并写回事件；
 - 8 个策略的定时/事件扫描、生命周期、逐时点历史回放和阈值校准；
 - Swagger UI、OpenAPI JSON、中文接口参数和响应字段说明；
 - Grafana、Prometheus、Loki、Tempo、OpenTelemetry 中文运维监控；
@@ -96,8 +96,6 @@ dotnet run --project .\src\AStockMonitor.Backtest\AStockMonitor.Backtest.csproj 
 - [开发环境启动](docs/getting-started.md)
 - [历史 K 线数据底座](docs/historical-kline-foundation.md)
 - [对子顶底 V3 与回测接口](docs/pair-trend-v3.md)
-- [重点底部波段信号回测方案](docs/wave-bottom-backtest-plan.md)
-- [重点底部波段信号首轮回测结果](docs/wave-bottom-backtest-result-2026-08-19.md)
 - [盘中行情数据核心服务](docs/intraday-market-data-core.md)
 - [行情缺口检测与自动补数服务](docs/market-gap-recovery.md)
 - [运维监控平台部署说明](docs/observability-deployment.md)

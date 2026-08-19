@@ -4,7 +4,7 @@ namespace AStockMonitor.Domain.Analytics;
 
 public sealed record WaveBottomOptions
 {
-    public const string CurrentAlgorithmVersion = "pair-wave-bottom-v3";
+    public const string CurrentAlgorithmVersion = "pair-wave-bottom-v2";
 
     public string AlgorithmVersion { get; init; } = CurrentAlgorithmVersion;
     public int RequiredDailyBars { get; init; } = 120;

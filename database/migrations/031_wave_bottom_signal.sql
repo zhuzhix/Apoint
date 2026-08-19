@@ -2,19 +2,44 @@ USE astock_monitor;
 
 -- The wave score is a point-in-time supplement evaluated when a BOTTOM event
 -- first reaches FOCUS. It must not replace pair-trend-v3 stage or score.
-ALTER TABLE pair_trend_live_event
-    ADD COLUMN IF NOT EXISTS wave_calculation_status VARCHAR(24) NOT NULL
-        DEFAULT 'NOT_ELIGIBLE' AFTER last_transition_at,
-    ADD COLUMN IF NOT EXISTS wave_signal VARCHAR(24) NULL
-        AFTER wave_calculation_status,
-    ADD COLUMN IF NOT EXISTS wave_score TINYINT UNSIGNED NULL AFTER wave_signal,
-    ADD COLUMN IF NOT EXISTS wave_evaluated_at DATETIME(6) NULL AFTER wave_score,
-    ADD COLUMN IF NOT EXISTS wave_data_as_of DATETIME(6) NULL AFTER wave_evaluated_at,
-    ADD COLUMN IF NOT EXISTS wave_algorithm_version VARCHAR(32) NULL AFTER wave_data_as_of,
-    ADD COLUMN IF NOT EXISTS wave_input_hash CHAR(64) NULL AFTER wave_algorithm_version,
-    ADD COLUMN IF NOT EXISTS wave_components JSON NULL AFTER wave_input_hash,
-    ADD COLUMN IF NOT EXISTS wave_revision INT UNSIGNED NOT NULL DEFAULT 0
-        AFTER wave_components;
+-- MySQL 8.4 does not accept MariaDB's ADD COLUMN IF NOT EXISTS syntax.
+-- A short-lived procedure keeps the migration repeatable while preserving the
+-- exact column order required by existing deployments.
+DROP PROCEDURE IF EXISTS astock_add_wave_bottom_columns;
+DELIMITER $$
+CREATE PROCEDURE astock_add_wave_bottom_columns()
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_calculation_status') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_calculation_status VARCHAR(24) NOT NULL DEFAULT 'NOT_ELIGIBLE' AFTER last_transition_at;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_signal') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_signal VARCHAR(24) NULL AFTER wave_calculation_status;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_score') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_score TINYINT UNSIGNED NULL AFTER wave_signal;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_evaluated_at') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_evaluated_at DATETIME(6) NULL AFTER wave_score;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_data_as_of') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_data_as_of DATETIME(6) NULL AFTER wave_evaluated_at;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_algorithm_version') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_algorithm_version VARCHAR(32) NULL AFTER wave_data_as_of;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_input_hash') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_input_hash CHAR(64) NULL AFTER wave_algorithm_version;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_components') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_components JSON NULL AFTER wave_input_hash;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema=DATABASE() AND table_name='pair_trend_live_event' AND column_name='wave_revision') THEN
+        ALTER TABLE pair_trend_live_event ADD COLUMN wave_revision INT UNSIGNED NOT NULL DEFAULT 0 AFTER wave_components;
+    END IF;
+END$$
+DELIMITER ;
+CALL astock_add_wave_bottom_columns();
+DROP PROCEDURE astock_add_wave_bottom_columns;
 
 CREATE TABLE IF NOT EXISTS wave_bottom_collection_job (
     id BIGINT NOT NULL AUTO_INCREMENT,
@@ -82,10 +107,10 @@ INSERT INTO wave_bottom_collection_job(
     event_id,symbol,focused_at,data_end_date,required_daily_bars,
     adjust_mode,algorithm_version,status)
 SELECT id,symbol,focused_at,DATE_SUB(DATE(focused_at),INTERVAL 1 DAY),120,
-       'NONE','pair-wave-bottom-v3','PENDING'
+       'NONE','pair-wave-bottom-v2','PENDING'
 FROM pair_trend_live_event
 WHERE algorithm_version='pair-trend-v3' AND pivot_type='BOTTOM'
-  AND focused_at IS NOT NULL
+  AND stage='FOCUS' AND is_active=TRUE AND focused_at IS NOT NULL
 ON DUPLICATE KEY UPDATE event_id=VALUES(event_id);
 
 UPDATE pair_trend_live_event event
@@ -96,6 +121,7 @@ SET event.wave_calculation_status=CASE
         ELSE 'PENDING'
     END
 WHERE event.algorithm_version='pair-trend-v3' AND event.pivot_type='BOTTOM'
+  AND event.stage='FOCUS' AND event.is_active=TRUE
   AND event.focused_at IS NOT NULL;
 
 INSERT INTO schema_migration(version,description)

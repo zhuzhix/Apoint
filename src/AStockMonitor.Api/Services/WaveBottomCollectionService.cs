@@ -43,22 +43,32 @@ public sealed class WaveBottomCollectionService(
             IsolationLevel.ReadCommitted, cancellationToken);
         var rows = (await connection.QueryAsync<JobRow>(new CommandDefinition(
             """
-            SELECT id JobId,event_id EventId,symbol Symbol,focused_at FocusedAt,
-                   data_end_date DataEndDate,required_daily_bars RequiredDailyBars,
-                   adjust_mode AdjustMode,algorithm_version AlgorithmVersion,
-                   attempt_count AttemptCount
-            FROM wave_bottom_collection_job
-            WHERE (
-                    status IN ('PENDING','RETRY') AND
-                    (next_attempt_at IS NULL OR next_attempt_at<=UTC_TIMESTAMP(6))
-                  ) OR (
-                    status='LEASED' AND lease_expires_at<UTC_TIMESTAMP(6)
+            SELECT job.id JobId,job.event_id EventId,job.symbol Symbol,
+                   job.focused_at FocusedAt,job.data_end_date DataEndDate,
+                   job.required_daily_bars RequiredDailyBars,
+                   job.adjust_mode AdjustMode,job.algorithm_version AlgorithmVersion,
+                   job.attempt_count AttemptCount
+            FROM wave_bottom_collection_job job
+            JOIN pair_trend_live_event event ON event.id=job.event_id
+            WHERE job.algorithm_version=@WaveAlgorithmVersion
+              AND event.algorithm_version='pair-trend-v3'
+              AND event.pivot_type='BOTTOM' AND event.stage='FOCUS'
+              AND event.is_active=TRUE AND event.focused_at=job.focused_at
+              AND (
+                    (job.status IN ('PENDING','RETRY') AND
+                     (job.next_attempt_at IS NULL OR job.next_attempt_at<=UTC_TIMESTAMP(6)))
+                    OR
+                    (job.status='LEASED' AND job.lease_expires_at<UTC_TIMESTAMP(6))
                   )
-            ORDER BY id
+            ORDER BY job.id
             LIMIT @Maximum
             FOR UPDATE SKIP LOCKED;
             """,
-            new { Maximum = maximum }, transaction,
+            new
+            {
+                Maximum = maximum,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            }, transaction,
             cancellationToken: cancellationToken))).ToArray();
 
         if (rows.Length == 0)
@@ -79,9 +89,22 @@ public sealed class WaveBottomCollectionService(
             UPDATE pair_trend_live_event event
             JOIN wave_bottom_collection_job job ON job.event_id=event.id
             SET event.wave_calculation_status='COLLECTING'
-            WHERE job.id IN @Ids AND event.wave_calculation_status<>'COMPLETED';
+            WHERE job.id IN @Ids
+              AND job.algorithm_version=@WaveAlgorithmVersion
+              AND event.algorithm_version='pair-trend-v3'
+              AND event.pivot_type='BOTTOM' AND event.stage='FOCUS'
+              AND event.is_active=TRUE AND event.focused_at=job.focused_at
+              AND (event.wave_calculation_status<>'COMPLETED'
+                   OR event.wave_algorithm_version<>@WaveAlgorithmVersion
+                   OR event.wave_algorithm_version IS NULL);
             """,
-            new { LeaseToken = leaseToken, CollectorId = collectorId, Ids = ids },
+            new
+            {
+                LeaseToken = leaseToken,
+                CollectorId = collectorId,
+                Ids = ids,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            },
             transaction, cancellationToken: cancellationToken));
         await transaction.CommitAsync(cancellationToken);
 
@@ -167,8 +190,8 @@ public sealed class WaveBottomCollectionService(
                     }
                     ValidateCompleteBars(job, dailyBars);
                     var evaluation = _scorer.Evaluate(dailyBars.Select(ToPairTrendBar).ToArray());
-                    await PersistEvaluationAsync(job, evaluation, cancellationToken);
-                    completed++;
+                    if (await PersistEvaluationAsync(job, evaluation, cancellationToken))
+                        completed++;
                 }
                 catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
                 {
@@ -244,8 +267,13 @@ public sealed class WaveBottomCollectionService(
                    adjust_mode AdjustMode,algorithm_version AlgorithmVersion,
                    attempt_count AttemptCount
             FROM wave_bottom_collection_job
-            WHERE lease_token=@LeaseToken AND status='LEASED';
-            """, new { LeaseToken = leaseToken },
+            WHERE lease_token=@LeaseToken AND status='LEASED'
+              AND algorithm_version=@WaveAlgorithmVersion;
+            """, new
+            {
+                LeaseToken = leaseToken,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            },
             cancellationToken: cancellationToken))).ToArray();
         if (rows.Length == 0)
             throw new KeyNotFoundException("波段采集租约不存在或已被回收。" );
@@ -266,21 +294,31 @@ public sealed class WaveBottomCollectionService(
             """
             UPDATE wave_bottom_collection_job
             SET lease_expires_at=DATE_ADD(UTC_TIMESTAMP(6),INTERVAL 30 MINUTE)
-            WHERE lease_token=@LeaseToken AND status='LEASED';
-            """, new { LeaseToken = leaseToken }, cancellationToken: cancellationToken));
+            WHERE lease_token=@LeaseToken AND status='LEASED'
+              AND algorithm_version=@WaveAlgorithmVersion;
+            """, new
+            {
+                LeaseToken = leaseToken,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            }, cancellationToken: cancellationToken));
         if (affected == 0) throw new InvalidOperationException("波段采集数据库租约已失效。" );
     }
 
-    private async Task PersistEvaluationAsync(
+    private async Task<bool> PersistEvaluationAsync(
         WaveBottomClaimJob job,
         WaveBottomEvaluation evaluation,
         CancellationToken cancellationToken)
     {
+        if (!string.Equals(job.AlgorithmVersion, WaveBottomOptions.CurrentAlgorithmVersion,
+                StringComparison.Ordinal) ||
+            !string.Equals(evaluation.AlgorithmVersion, WaveBottomOptions.CurrentAlgorithmVersion,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException($"波段任务 {job.JobId} 算法版本不是当前正式版本。" );
         await using var connection = connectionFactory.Create();
         await connection.OpenAsync(cancellationToken);
         await using var transaction = await connection.BeginTransactionAsync(
             IsolationLevel.ReadCommitted, cancellationToken);
-        var affected = await connection.ExecuteAsync(new CommandDefinition(
+        var eventAffected = await connection.ExecuteAsync(new CommandDefinition(
             """
             UPDATE pair_trend_live_event
             SET wave_calculation_status=@CalculationStatus,wave_signal=@Signal,
@@ -288,13 +326,9 @@ public sealed class WaveBottomCollectionService(
                 wave_data_as_of=@DataAsOf,wave_algorithm_version=@AlgorithmVersion,
                 wave_input_hash=@InputHash,wave_components=@ComponentsJson,
                 wave_revision=wave_revision+1
-            WHERE id=@EventId AND pivot_type='BOTTOM' AND focused_at=@FocusedAt
-              AND algorithm_version='pair-trend-v3';
-
-            UPDATE wave_bottom_collection_job
-            SET status='COMPLETED',lease_token=NULL,lease_owner=NULL,
-                lease_expires_at=NULL,last_error=NULL,completed_at=UTC_TIMESTAMP(6)
-            WHERE id=@JobId;
+            WHERE id=@EventId AND algorithm_version='pair-trend-v3'
+              AND pivot_type='BOTTOM' AND stage='FOCUS' AND is_active=TRUE
+              AND focused_at=@FocusedAt;
             """,
             new
             {
@@ -309,9 +343,53 @@ public sealed class WaveBottomCollectionService(
                 job.FocusedAt,
                 job.JobId
             }, transaction, cancellationToken: cancellationToken));
-        if (affected < 2)
-            throw new InvalidOperationException($"波段事件 {job.EventId} 已被修订，拒绝写入旧评分。" );
+        if (eventAffected != 1)
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                """
+                UPDATE pair_trend_live_event
+                SET wave_calculation_status='NOT_ELIGIBLE',wave_signal=NULL,
+                    wave_score=NULL,wave_evaluated_at=NULL,wave_data_as_of=NULL,
+                    wave_algorithm_version=NULL,wave_input_hash=NULL,
+                    wave_components=NULL,wave_revision=wave_revision+1
+                WHERE id=@EventId AND wave_calculation_status='COLLECTING';
+
+                UPDATE wave_bottom_collection_job
+                SET status='SUPERSEDED',lease_token=NULL,lease_owner=NULL,
+                    lease_expires_at=NULL,next_attempt_at=NULL,
+                    last_error='事件已不再是有效FOCUS底部，跳过过期评分'
+                WHERE id=@JobId AND algorithm_version=@WaveAlgorithmVersion;
+                """,
+                new
+                {
+                    job.JobId,
+                    job.EventId,
+                    WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+                }, transaction, cancellationToken: cancellationToken));
+            await transaction.CommitAsync(cancellationToken);
+            logger.LogInformation("波段历史任务 {JobId}/{Symbol} 因事件状态变化已跳过。",
+                job.JobId, job.Symbol);
+            return false;
+        }
+
+        var jobAffected = await connection.ExecuteAsync(new CommandDefinition(
+            """
+            UPDATE wave_bottom_collection_job
+            SET status='COMPLETED',lease_token=NULL,lease_owner=NULL,
+                lease_expires_at=NULL,next_attempt_at=NULL,last_error=NULL,
+                completed_at=UTC_TIMESTAMP(6)
+            WHERE id=@JobId AND algorithm_version=@WaveAlgorithmVersion
+              AND status='LEASED';
+            """,
+            new
+            {
+                job.JobId,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            }, transaction, cancellationToken: cancellationToken));
+        if (jobAffected != 1)
+            throw new InvalidOperationException($"波段任务 {job.JobId} 租约已失效，拒绝提交评分。" );
         await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     private async Task<bool> MarkFailureAsync(
@@ -327,8 +405,15 @@ public sealed class WaveBottomCollectionService(
         await using var transaction = await connection.BeginTransactionAsync(
             IsolationLevel.ReadCommitted, cancellationToken);
         var attempt = await connection.QuerySingleAsync<int>(new CommandDefinition(
-            "SELECT attempt_count FROM wave_bottom_collection_job WHERE id=@JobId FOR UPDATE;",
-            new { job.JobId }, transaction, cancellationToken: cancellationToken));
+            """
+            SELECT attempt_count FROM wave_bottom_collection_job
+            WHERE id=@JobId AND algorithm_version=@WaveAlgorithmVersion FOR UPDATE;
+            """,
+            new
+            {
+                job.JobId,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
+            }, transaction, cancellationToken: cancellationToken));
         if (providerUnavailable)
         {
             attempt = Math.Max(0, attempt - 1);
@@ -349,7 +434,22 @@ public sealed class WaveBottomCollectionService(
 
             UPDATE pair_trend_live_event
             SET wave_calculation_status=CASE WHEN @Final THEN 'FAILED' ELSE 'PENDING' END
-            WHERE id=@EventId AND wave_calculation_status<>'COMPLETED';
+            WHERE id=@EventId AND algorithm_version='pair-trend-v3'
+              AND pivot_type='BOTTOM' AND stage='FOCUS' AND is_active=TRUE
+              AND wave_calculation_status<>'COMPLETED';
+
+            UPDATE wave_bottom_collection_job job
+            JOIN pair_trend_live_event event ON event.id=job.event_id
+            SET job.status='SUPERSEDED',job.lease_token=NULL,job.lease_owner=NULL,
+                job.lease_expires_at=NULL,job.next_attempt_at=NULL,
+                job.last_error='事件已不再是有效FOCUS底部，停止重试',
+                event.wave_calculation_status=CASE
+                    WHEN event.wave_calculation_status='COLLECTING' THEN 'NOT_ELIGIBLE'
+                    ELSE event.wave_calculation_status END
+            WHERE job.id=@JobId AND job.algorithm_version=@WaveAlgorithmVersion
+              AND NOT(event.algorithm_version='pair-trend-v3'
+                      AND event.pivot_type='BOTTOM' AND event.stage='FOCUS'
+                      AND event.is_active=TRUE AND event.focused_at=job.focused_at);
             """,
             new
             {
@@ -357,7 +457,8 @@ public sealed class WaveBottomCollectionService(
                 Final = final,
                 Error = error,
                 job.JobId,
-                job.EventId
+                job.EventId,
+                WaveAlgorithmVersion = WaveBottomOptions.CurrentAlgorithmVersion
             }, transaction, cancellationToken: cancellationToken));
         await transaction.CommitAsync(cancellationToken);
         logger.LogWarning(

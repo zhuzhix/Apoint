@@ -17,22 +17,22 @@ $workingDirectory = (Resolve-Path -LiteralPath $PSScriptRoot).Path
 $interactiveUser = ([System.Security.Principal.WindowsIdentity]::GetCurrent()).Name
 
 if ($interactiveUser -eq 'NT AUTHORITY\SYSTEM') {
-    throw '采集器依赖桌面版掘金终端，安装任务必须在将要登录掘金终端的 Windows 用户下执行，不能使用 SYSTEM。'
+    throw 'The collector requires the desktop Goldminer terminal. Install the task for the interactive Goldminer user, not SYSTEM.'
 }
 
 if ([System.IO.Path]::GetExtension($pythonPath) -ne '.exe') {
-    throw "PythonExe 必须指向 python.exe 的绝对路径：$pythonPath"
+    throw "PythonExe must be an absolute path to python.exe: $pythonPath"
 }
 
 # The scheduled task owns both Python entry points. Refuse registration if the
 # new dedicated wave worker cannot even be imported by the selected runtime.
 & $pythonPath -m py_compile $scriptPath $waveWorkerPath
 if ($LASTEXITCODE -ne 0) {
-    throw "采集器 Python 语法校验失败，未注册开机任务。退出码：$LASTEXITCODE"
+    throw "Collector Python syntax validation failed; the scheduled task was not registered. Exit code: $LASTEXITCODE"
 }
 & $pythonPath $scriptPath --config $configFullPath --validate-config
 if ($LASTEXITCODE -ne 0) {
-    throw "采集器只读配置校验失败，未注册开机任务。退出码：$LASTEXITCODE"
+    throw "Collector read-only configuration validation failed; the scheduled task was not registered. Exit code: $LASTEXITCODE"
 }
 
 $powershellPath = (Get-Command powershell.exe -ErrorAction Stop).Source

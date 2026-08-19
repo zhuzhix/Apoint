@@ -155,7 +155,9 @@ public sealed class PairTrendLiveSnapshotWriter(IMySqlConnectionFactory connecti
             // Wave-bottom is supplementary and only becomes eligible after a BOTTOM
             // has passed through FOCUS. The durable job is created in the same
             // transaction as the event snapshot, so a process restart cannot lose it.
-            if (pairEvent.PivotType == PairPivotType.Bottom && pairEvent.FocusedAt is not null)
+            if (pairEvent.PivotType == PairPivotType.Bottom &&
+                pairEvent.Stage == PairTrendStage.Focus && pairEvent.IsActive &&
+                pairEvent.FocusedAt is not null)
             {
                 await connection.ExecuteAsync(new CommandDefinition(
                     """
