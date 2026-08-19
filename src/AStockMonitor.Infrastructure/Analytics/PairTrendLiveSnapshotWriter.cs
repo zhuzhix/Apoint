@@ -152,11 +152,13 @@ public sealed class PairTrendLiveSnapshotWriter(IMySqlConnectionFactory connecti
                 "SELECT id FROM pair_trend_live_event WHERE event_key=@EventKey;",
                 new { pairEvent.EventKey }, transaction, cancellationToken: cancellationToken));
 
-            // Wave-bottom is supplementary and only becomes eligible after a BOTTOM
-            // has passed through FOCUS. The durable job is created in the same
-            // transaction as the event snapshot, so a process restart cannot lose it.
+            // Wave-bottom is supplementary and becomes eligible after an active
+            // BOTTOM has reached FOCUS.  Keep ESTABLISHED eligible as well: its
+            // focused_at is the immutable scoring anchor, so promotion must not
+            // erase or prevent the original point-in-time signal.
             if (pairEvent.PivotType == PairPivotType.Bottom &&
-                pairEvent.Stage == PairTrendStage.Focus && pairEvent.IsActive &&
+                pairEvent.Stage is PairTrendStage.Focus or PairTrendStage.Established &&
+                pairEvent.IsActive &&
                 pairEvent.FocusedAt is not null)
             {
                 await connection.ExecuteAsync(new CommandDefinition(

@@ -110,7 +110,8 @@ SELECT id,symbol,focused_at,DATE_SUB(DATE(focused_at),INTERVAL 1 DAY),120,
        'NONE','pair-wave-bottom-v2','PENDING'
 FROM pair_trend_live_event
 WHERE algorithm_version='pair-trend-v3' AND pivot_type='BOTTOM'
-  AND stage='FOCUS' AND is_active=TRUE AND focused_at IS NOT NULL
+  AND stage IN ('FOCUS','ESTABLISHED')
+  AND is_active=TRUE AND focused_at IS NOT NULL
 ON DUPLICATE KEY UPDATE event_id=VALUES(event_id);
 
 UPDATE pair_trend_live_event event
@@ -121,7 +122,7 @@ SET event.wave_calculation_status=CASE
         ELSE 'PENDING'
     END
 WHERE event.algorithm_version='pair-trend-v3' AND event.pivot_type='BOTTOM'
-  AND event.stage='FOCUS' AND event.is_active=TRUE
+  AND event.stage IN ('FOCUS','ESTABLISHED') AND event.is_active=TRUE
   AND event.focused_at IS NOT NULL;
 
 INSERT INTO schema_migration(version,description)

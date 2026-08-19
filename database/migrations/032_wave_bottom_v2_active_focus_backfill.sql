@@ -1,8 +1,9 @@
 USE astock_monitor;
 
 -- pair-wave-bottom-v2 is the sole production definition: six components,
--- maximum score 90, CANDIDATE 60-74 and STRONG 75-90.  Old queued work is
--- never allowed to run under the current scorer.
+-- maximum score 90, CANDIDATE 60-74 and STRONG 75-90. FOCUS and ESTABLISHED
+-- remain eligible while active because focused_at is the scoring anchor. Old
+-- queued work is never allowed to run under the current scorer.
 START TRANSACTION;
 
 UPDATE wave_bottom_collection_job
@@ -30,7 +31,8 @@ SELECT event.id,event.symbol,event.focused_at,
        'NONE','pair-wave-bottom-v2','PENDING'
 FROM pair_trend_live_event event
 WHERE event.algorithm_version='pair-trend-v3'
-  AND event.pivot_type='BOTTOM' AND event.stage='FOCUS'
+  AND event.pivot_type='BOTTOM'
+  AND event.stage IN ('FOCUS','ESTABLISHED')
   AND event.is_active=TRUE AND event.focused_at IS NOT NULL
 ON DUPLICATE KEY UPDATE
     symbol=VALUES(symbol),focused_at=VALUES(focused_at),
@@ -49,11 +51,12 @@ SET event.wave_calculation_status='PENDING',event.wave_signal=NULL,
     event.wave_input_hash=NULL,event.wave_components=NULL,
     event.wave_revision=event.wave_revision+1
 WHERE event.algorithm_version='pair-trend-v3'
-  AND event.pivot_type='BOTTOM' AND event.stage='FOCUS'
+  AND event.pivot_type='BOTTOM'
+  AND event.stage IN ('FOCUS','ESTABLISHED')
   AND event.is_active=TRUE AND event.focused_at=job.focused_at;
 
 INSERT INTO schema_migration(version,description)
-VALUES ('032','canonical v2 wave score and active FOCUS bottom backfill')
+VALUES ('032','canonical v2 wave score and active focused-or-established bottom backfill')
 ON DUPLICATE KEY UPDATE description=VALUES(description);
 
 COMMIT;
