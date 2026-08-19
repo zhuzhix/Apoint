@@ -97,6 +97,7 @@ dotnet run --project .\src\AStockMonitor.Backtest\AStockMonitor.Backtest.csproj 
 - [历史 K 线数据底座](docs/historical-kline-foundation.md)
 - [对子顶底 V3 与回测接口](docs/pair-trend-v3.md)
 - [重点底部波段信号回测方案](docs/wave-bottom-backtest-plan.md)
+- [重点底部波段信号首轮回测结果](docs/wave-bottom-backtest-result-2026-08-19.md)
 - [盘中行情数据核心服务](docs/intraday-market-data-core.md)
 - [行情缺口检测与自动补数服务](docs/market-gap-recovery.md)
 - [运维监控平台部署说明](docs/observability-deployment.md)
