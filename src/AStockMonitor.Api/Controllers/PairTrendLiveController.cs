@@ -9,6 +9,7 @@ using AStockMonitor.Domain.Analytics;
 using Dapper;
 using Microsoft.AspNetCore.Mvc;
 using StackExchange.Redis;
+using System.Text.Json;
 
 namespace AStockMonitor.Api.Controllers;
 
@@ -216,6 +217,26 @@ public sealed class PairTrendLiveController(
             return NotFound();
         }
 
+        var waveRow = await connection.QuerySingleAsync<WaveScoreRow>(new CommandDefinition(
+            """
+            SELECT wave_calculation_status CalculationStatus,wave_signal WaveSignal,
+                   wave_score WaveScore,wave_evaluated_at EvaluatedAt,
+                   wave_data_as_of DataAsOf,wave_algorithm_version AlgorithmVersion,
+                   CAST(wave_components AS CHAR CHARACTER SET utf8mb4) ComponentsJson
+            FROM pair_trend_live_event WHERE id=@Id;
+            """, new { Id = id }, transaction, cancellationToken: cancellationToken));
+        WaveScoreBreakdownResponse? waveScoreBreakdown;
+        try
+        {
+            waveScoreBreakdown = CreateWaveScoreBreakdown(waveRow);
+        }
+        catch (InvalidDataException)
+        {
+            await transaction.CommitAsync(cancellationToken);
+            return StatusCode(StatusCodes.Status500InternalServerError,
+                new { code = "PAIR_WAVE_COMPONENTS_INVALID" });
+        }
+
         var total = await connection.QuerySingleAsync<long>(new CommandDefinition(
             "SELECT COUNT(*) FROM pair_trend_live_hit WHERE event_id=@Id;",
             new { Id = id }, transaction, cancellationToken: cancellationToken));
@@ -239,6 +260,7 @@ public sealed class PairTrendLiveController(
         return Ok(new LiveEventDetailResponse
         {
             PairEvent = pairEvent,
+            WaveScoreBreakdown = waveScoreBreakdown,
             Hits = Page(hitPage, hitPageSize, total, hits),
             Lifecycles = lifecycles,
             RecommendedChart = PairTrendRecommendedChart.Create(
@@ -357,6 +379,41 @@ public sealed class PairTrendLiveController(
     private static PageResponse<T> Page<T>(int page, int size, long total, IReadOnlyCollection<T> items) =>
         new(page, size, total, total == 0 ? 0 : (long)Math.Ceiling((decimal)total / size), items);
 
+    private static WaveScoreBreakdownResponse? CreateWaveScoreBreakdown(WaveScoreRow row)
+    {
+        if (row.WaveScore is null || string.IsNullOrWhiteSpace(row.ComponentsJson)) return null;
+        WaveBottomComponent[] components;
+        try
+        {
+            components = JsonSerializer.Deserialize<WaveBottomComponent[]>(row.ComponentsJson) ?? [];
+        }
+        catch (JsonException exception)
+        {
+            throw new InvalidDataException("波段评分项不是有效JSON。", exception);
+        }
+
+        var items = components.Select(static component => new WaveScoreComponentResponse(
+            component.Code,
+            component.Label,
+            component.Matched ? component.Score : 0,
+            component.Score,
+            component.Matched,
+            component.Evidence)).ToArray();
+        if (items.Sum(static item => item.AwardedScore) != row.WaveScore.Value)
+            throw new InvalidDataException("波段评分项合计与总分不一致。");
+
+        return new WaveScoreBreakdownResponse(
+            row.CalculationStatus,
+            row.WaveSignal,
+            row.WaveScore.Value,
+            items.Sum(static item => item.MaximumScore),
+            items.FirstOrDefault(static item => item.Code == "TREND_GATE")?.Matched,
+            row.EvaluatedAt,
+            row.DataAsOf,
+            row.AlgorithmVersion,
+            items);
+    }
+
     private const string LiveEventSelectSql = """
         SELECT id Id,event_key EventKey,symbol Symbol,symbol_name SymbolName,
                pivot_type PivotType,status Status,first_seen_at FirstSeenAt,
@@ -421,6 +478,9 @@ public sealed class PairTrendLiveController(
         /// <summary>对子事件汇总。</summary>
         public LiveEventDto PairEvent { get; init; } = new();
 
+        /// <summary>波段总分、逐项实际得分及指标证据。</summary>
+        public WaveScoreBreakdownResponse? WaveScoreBreakdown { get; init; }
+
         /// <summary>构成事件的 K 线命中明细。</summary>
         public PageResponse<LiveHitDto> Hits { get; init; } =
             new(1, 100, 0, 0, []);
@@ -479,6 +539,36 @@ public sealed class PairTrendLiveController(
         public string SummaryJson { get; init; } = "{}";
         public DateTime CreatedAt { get; init; }
         public DateTime UpdatedAt { get; init; }
+    }
+
+    public sealed record WaveScoreBreakdownResponse(
+        string CalculationStatus,
+        string? Signal,
+        int Score,
+        int MaximumScore,
+        bool? TrendGatePassed,
+        DateTime? EvaluatedAt,
+        DateTime? DataAsOf,
+        string? AlgorithmVersion,
+        IReadOnlyCollection<WaveScoreComponentResponse> Items);
+
+    public sealed record WaveScoreComponentResponse(
+        string Code,
+        string Label,
+        int AwardedScore,
+        int MaximumScore,
+        bool Matched,
+        string Evidence);
+
+    private sealed class WaveScoreRow
+    {
+        public string CalculationStatus { get; init; } = string.Empty;
+        public string? WaveSignal { get; init; }
+        public int? WaveScore { get; init; }
+        public DateTime? EvaluatedAt { get; init; }
+        public DateTime? DataAsOf { get; init; }
+        public string? AlgorithmVersion { get; init; }
+        public string? ComponentsJson { get; init; }
     }
 
     public sealed class LiveHitDto

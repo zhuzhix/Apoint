@@ -78,7 +78,8 @@ const columns = [
         <small class="state-validity">{{ record.currentIsActive ? '有效' : '失效' }}</small>
       </template>
       <template v-else-if="column.key === 'waveSignal'">
-        <span class="wave-signal numeric" :class="`wave-${waveScore(record).tone}`" :title="waveScore(record).title">{{ waveScore(record).text }}</span>
+        <button v-if="waveScore(record).text !== '—'" type="button" class="wave-score-button wave-signal numeric" :class="`wave-${waveScore(record).tone}`" title="查看评分项" @click.stop="$emit('open', record.id)">{{ waveScore(record).text }}</button>
+        <span v-else class="wave-signal numeric wave-muted">—</span>
       </template>
       <template v-else-if="column.key === 'invalidatedAt'">
         <span class="numeric muted">{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '—' }}</span>
@@ -103,7 +104,7 @@ const columns = [
         <div><span>周期</span><strong>{{ record.frequencies }}</strong></div>
         <div><span>截至结束日</span><strong>{{ label(record.stageAtEnd) }} · {{ record.isActiveAtEnd ? '有效' : '失效' }}</strong></div>
         <div><span>当前状态</span><strong>{{ label(record.currentStage) }} · {{ record.currentIsActive ? '有效' : '失效' }}</strong></div>
-        <div><span>波段分数</span><strong class="wave-signal numeric" :class="`wave-${waveScore(record).tone}`" :title="waveScore(record).title">{{ waveScore(record).text }}</strong></div>
+        <div><span>波段分数</span><button v-if="waveScore(record).text !== '—'" type="button" class="wave-score-button wave-signal numeric" :class="`wave-${waveScore(record).tone}`" title="查看评分项" @click.stop="$emit('open', record.id)">{{ waveScore(record).text }}</button><strong v-else class="wave-signal numeric wave-muted">—</strong></div>
       </div>
       <div v-if="record.invalidatedAt || record.invalidationReason" class="pair-event-invalidated">
         <span>{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '已失效' }}</span>
@@ -121,6 +122,8 @@ const columns = [
 .state-validity { display: block; margin-top: 4px; color: #73849b; font-size: 10px; }
 .invalidation-reason { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; color:#8b9ab0; }
 .wave-signal { display:inline-flex; align-items:center; min-height:22px; padding:2px 8px; border-radius:999px; font-size:11px; white-space:nowrap; }
+.wave-score-button { border:0; font:inherit; cursor:pointer; }
+.wave-score-button:hover,.wave-score-button:focus-visible { outline:1px solid currentColor; outline-offset:2px; }
 .wave-strong { color:#ffec8b; background:rgba(250,173,20,.18); }
 .wave-candidate { color:#91d5ff; background:rgba(24,144,255,.16); }
 .wave-muted { color:#8291a6; background:rgba(130,145,166,.10); }

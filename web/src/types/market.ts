@@ -248,9 +248,31 @@ export interface PairTrendDetail {
   source: PairTrendSource
   sourceInfo: PairTrendSourceInfo
   pairEvent: PairTrendEvent
+  waveScoreBreakdown?: WaveScoreBreakdown
   hits: PageResponse<PairTrendHit>
   lifecycles: PairTrendLifecycle[]
   recommendedChart: PairTrendChartWindow
+}
+
+export interface WaveScoreComponent {
+  code: string
+  label: string
+  awardedScore: number
+  maximumScore: number
+  matched: boolean
+  evidence: string
+}
+
+export interface WaveScoreBreakdown {
+  calculationStatus: string
+  signal?: 'NONE' | 'CANDIDATE' | 'STRONG'
+  score: number
+  maximumScore: number
+  trendGatePassed?: boolean
+  evaluatedAt?: string
+  dataAsOf?: string
+  algorithmVersion?: string
+  items: WaveScoreComponent[]
 }
 
 export interface PairTrendLifecycle {

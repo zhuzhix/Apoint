@@ -54,8 +54,7 @@ public sealed class WaveBottomCollectionService(
             WHERE job.algorithm_version=@WaveAlgorithmVersion
               AND event.algorithm_version='pair-trend-v3'
               AND event.pivot_type='BOTTOM'
-              AND event.stage IN ('FOCUS','ESTABLISHED')
-              AND event.is_active=TRUE AND event.focused_at=job.focused_at
+              AND event.focused_at=job.focused_at
               AND (
                     (job.status IN ('PENDING','RETRY') AND
                      (job.next_attempt_at IS NULL OR job.next_attempt_at<=UTC_TIMESTAMP(6)))
@@ -95,8 +94,7 @@ public sealed class WaveBottomCollectionService(
               AND job.algorithm_version=@WaveAlgorithmVersion
               AND event.algorithm_version='pair-trend-v3'
               AND event.pivot_type='BOTTOM'
-              AND event.stage IN ('FOCUS','ESTABLISHED')
-              AND event.is_active=TRUE AND event.focused_at=job.focused_at
+              AND event.focused_at=job.focused_at
               AND (event.wave_calculation_status<>'COMPLETED'
                    OR event.wave_algorithm_version<>@WaveAlgorithmVersion
                    OR event.wave_algorithm_version IS NULL);
@@ -330,9 +328,7 @@ public sealed class WaveBottomCollectionService(
                 wave_input_hash=@InputHash,wave_components=@ComponentsJson,
                 wave_revision=wave_revision+1
             WHERE id=@EventId AND algorithm_version='pair-trend-v3'
-              AND pivot_type='BOTTOM' AND stage IN ('FOCUS','ESTABLISHED')
-              AND is_active=TRUE
-              AND focused_at=@FocusedAt;
+              AND pivot_type='BOTTOM' AND focused_at=@FocusedAt;
             """,
             new
             {
@@ -361,7 +357,7 @@ public sealed class WaveBottomCollectionService(
                 UPDATE wave_bottom_collection_job
                 SET status='SUPERSEDED',lease_token=NULL,lease_owner=NULL,
                     lease_expires_at=NULL,next_attempt_at=NULL,
-                    last_error='事件已不再是有效重点或成立底部，跳过过期评分'
+                    last_error='事件或重点时间已变化，跳过过期评分'
                 WHERE id=@JobId AND algorithm_version=@WaveAlgorithmVersion;
                 """,
                 new
@@ -372,7 +368,7 @@ public sealed class WaveBottomCollectionService(
                 }, transaction, cancellationToken: cancellationToken));
             await transaction.CommitAsync(cancellationToken);
             queryCache.Invalidate();
-            logger.LogInformation("波段历史任务 {JobId}/{Symbol} 因事件状态变化已跳过。",
+            logger.LogInformation("波段历史任务 {JobId}/{Symbol} 因事件或重点时间变化已跳过。",
                 job.JobId, job.Symbol);
             return false;
         }
@@ -441,23 +437,21 @@ public sealed class WaveBottomCollectionService(
             UPDATE pair_trend_live_event
             SET wave_calculation_status=CASE WHEN @Final THEN 'FAILED' ELSE 'PENDING' END
             WHERE id=@EventId AND algorithm_version='pair-trend-v3'
-              AND pivot_type='BOTTOM' AND stage IN ('FOCUS','ESTABLISHED')
-              AND is_active=TRUE
+              AND pivot_type='BOTTOM'
               AND wave_calculation_status<>'COMPLETED';
 
             UPDATE wave_bottom_collection_job job
             JOIN pair_trend_live_event event ON event.id=job.event_id
             SET job.status='SUPERSEDED',job.lease_token=NULL,job.lease_owner=NULL,
                 job.lease_expires_at=NULL,job.next_attempt_at=NULL,
-                job.last_error='事件已不再是有效重点或成立底部，停止重试',
+                job.last_error='事件或重点时间已变化，停止重试',
                 event.wave_calculation_status=CASE
                     WHEN event.wave_calculation_status='COLLECTING' THEN 'NOT_ELIGIBLE'
                     ELSE event.wave_calculation_status END
             WHERE job.id=@JobId AND job.algorithm_version=@WaveAlgorithmVersion
               AND NOT(event.algorithm_version='pair-trend-v3'
                       AND event.pivot_type='BOTTOM'
-                      AND event.stage IN ('FOCUS','ESTABLISHED')
-                      AND event.is_active=TRUE AND event.focused_at=job.focused_at);
+                      AND event.focused_at=job.focused_at);
             """,
             new
             {

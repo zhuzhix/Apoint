@@ -16,6 +16,7 @@ const detail = useQuery({
   refetchInterval: computed(() => props.context === 'intraday' ? 30_000 : false),
 })
 const event = computed(() => detail.data.value?.pairEvent)
+const wave = computed(() => detail.data.value?.waveScoreBreakdown)
 const symbol = computed(() => event.value?.symbol ?? '')
 const frequency = ref('5m')
 const selectedHitId = ref<number>()
@@ -78,6 +79,11 @@ function openStock() {
 function openFull() {
   void router.push({ name: props.context === 'intraday' ? 'pair-trend-intraday-detail' : 'pair-trend-history-data-detail', params: { id: props.eventId } })
 }
+function waveSignalLabel(value?: string) {
+  if (value === 'STRONG') return '强确认'
+  if (value === 'CANDIDATE') return '候选'
+  return '未形成信号'
+}
 </script>
 
 <template>
@@ -118,6 +124,24 @@ function openFull() {
         <div><span>升级证据</span><strong>{{ event.confirmedHitCount }}</strong></div>
         <div><span>价格 Tick</span><strong>{{ event.priceTicks ?? '—' }}</strong></div>
       </div>
+
+      <section v-if="wave" class="wave-score-detail">
+        <header class="wave-score-head">
+          <div><span class="eyebrow">WAVE SCORE BREAKDOWN</span><h3>波段评分项</h3></div>
+          <div class="wave-score-total"><strong>{{ wave.score }}</strong><span>/ {{ wave.maximumScore }} · {{ waveSignalLabel(wave.signal) }}</span></div>
+        </header>
+        <div class="wave-score-meta">
+          <span>趋势门禁：{{ wave.trendGatePassed === undefined ? '旧版本未记录' : wave.trendGatePassed ? '通过' : '未通过' }}</span>
+          <span>数据截止：{{ formatTime(wave.dataAsOf) }}</span>
+          <span>算法：{{ wave.algorithmVersion || '—' }}</span>
+        </div>
+        <div class="wave-score-items">
+          <article v-for="item in wave.items" :key="item.code" class="wave-score-item" :class="{ matched: item.matched, gate: item.maximumScore === 0 }">
+            <div class="wave-score-item-title"><span>{{ item.matched ? '✓' : '—' }} {{ item.label }}</span><strong v-if="item.maximumScore > 0" class="numeric">{{ item.awardedScore }} / {{ item.maximumScore }}</strong><strong v-else>{{ item.matched ? '通过' : '未通过' }}</strong></div>
+            <p>{{ item.evidence }}</p>
+          </article>
+        </div>
+      </section>
 
       <div class="detail-section-head">
         <div><span class="eyebrow">OFFICIAL KLINE REVIEW</span><h3>官方 K 线复核</h3></div>
@@ -169,3 +193,22 @@ function openFull() {
     </template>
   </div>
 </template>
+
+<style scoped>
+.wave-score-detail { margin:18px 0; padding:18px; border:1px solid #26354b; border-radius:12px; background:#0e1727; }
+.wave-score-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
+.wave-score-head h3 { margin:3px 0 0; color:#e6edf7; }
+.wave-score-total { display:flex; align-items:baseline; gap:7px; color:#91a0b5; }
+.wave-score-total strong { color:#ffdd75; font-size:30px; line-height:1; }
+.wave-score-meta { display:flex; flex-wrap:wrap; gap:8px 18px; margin-top:10px; color:#8796aa; font-size:12px; }
+.wave-score-items { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.wave-score-item { padding:11px 12px; border:1px solid #243147; border-radius:9px; background:#101b2d; opacity:.72; }
+.wave-score-item.matched { border-color:rgba(82,196,26,.36); opacity:1; }
+.wave-score-item.gate { grid-column:1/-1; border-color:#30445f; }
+.wave-score-item-title { display:flex; justify-content:space-between; gap:12px; color:#ccd6e4; }
+.wave-score-item.matched .wave-score-item-title strong { color:#95de64; }
+.wave-score-item p { margin:6px 0 0; color:#7f8fa5; font-size:11px; line-height:1.5; }
+@media (max-width:720px) {
+  .wave-score-head { align-items:flex-start; }.wave-score-items { grid-template-columns:1fr; }.wave-score-item.gate { grid-column:auto; }
+}
+</style>

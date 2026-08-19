@@ -431,9 +431,34 @@ var waveBars = Enumerable.Range(0, 120).Select(index =>
 var completeWave = waveScorer.Evaluate(waveBars);
 Require(completeWave.CalculationStatus == "COMPLETED" && completeWave.DailyBarCount == 120,
     "120根已闭合日K必须完成波段评分。");
-Require(completeWave.Components.Sum(static item => item.Score) == 90 &&
-        completeWave.Score is >= 0 and <= 90 && completeWave.InputHash.Length == 64,
-    "波段六项权重必须严格合计90分且结果可追溯。");
+Require(completeWave.Components.Sum(static item => item.Score) == 100 &&
+        completeWave.Score is >= 0 and <= 100 && completeWave.InputHash.Length == 64,
+    "波段七项计分权重必须严格合计100分且结果可追溯。");
+Require(completeWave.AlgorithmVersion == "pair-wave-bottom-v3" &&
+        completeWave.Components.Any(static item =>
+            item.Code == "TREND_GATE" && item.Score == 0) &&
+        completeWave.Components.Any(static item =>
+            item.Code == "SHORT_PRESSURE_MA5" && item.Score == 10),
+    "v3必须记录不计分趋势门禁，并增加突破短期压力且站上MA5的10分项。");
+var breakoutLast = waveBars[^1] with
+{
+    OpenPrice = 13.20m,
+    HighPrice = 14.20m,
+    LowPrice = 13.10m,
+    ClosePrice = 14.00m,
+    PreClose = waveBars[^2].ClosePrice,
+    SourceRowHash = "wave-breakout"
+};
+var breakoutWave = waveScorer.Evaluate([.. waveBars[..^1], breakoutLast]);
+Require(breakoutWave.Components.Single(static item =>
+        item.Code == "SHORT_PRESSURE_MA5").Matched,
+    "收盘同时突破此前10日压力并站上MA5时必须取得新增10分。");
+Require(!completeWave.Components.Single(static item =>
+        item.Code == "SHORT_PRESSURE_MA5").Matched,
+    "没有突破此前10日最高价时不得取得新增10分。");
+var waveDefaults = new WaveBottomOptions();
+Require(waveDefaults.CandidateThreshold == 70 && waveDefaults.StrongThreshold == 85,
+    "v3候选和强确认阈值必须分别为70和85。");
 var insufficientWave = waveScorer.Evaluate(waveBars.Take(59).ToArray());
 Require(insufficientWave.CalculationStatus == "INSUFFICIENT_DATA" &&
         insufficientWave.Signal == "NONE" && insufficientWave.Score == 0,
@@ -445,6 +470,12 @@ Require(waveMigration.Contains("wave_bottom_collection_job", StringComparison.Or
         waveMigration.Contains("required_daily_bars", StringComparison.Ordinal) &&
         waveMigration.Contains("wave_calculation_status", StringComparison.Ordinal),
     "031必须同时建立持久任务队列和事件级波段结果字段。");
+var waveV3Migration = File.ReadAllText(Path.Combine(
+    verificationRoot, "database", "migrations", "035_wave_bottom_v3_rescore.sql"));
+Require(waveV3Migration.Contains("pair-wave-bottom-v3", StringComparison.Ordinal) &&
+        waveV3Migration.Contains("pair-wave-bottom-v2", StringComparison.Ordinal) &&
+        waveV3Migration.Contains("old_job.status='COMPLETED'", StringComparison.Ordinal),
+    "035必须把所有已完成v2任务重新排入v3，并保留可审计的新旧算法版本。");
 
 Console.WriteLine("PairTrend collection and grouped query verification passed.");
 

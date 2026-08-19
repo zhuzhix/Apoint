@@ -41,6 +41,7 @@ public sealed class WaveBottomScorer(WaveBottomOptions options)
         var return20 = closes[^1] / closes[^21] - 1d;
         var drawdown60 = closes[^1] / highs.TakeLast(60).Max() - 1d;
         var ma10 = closes.TakeLast(10).Average();
+        var ma5 = closes.TakeLast(5).Average();
         var ma20 = closes.TakeLast(20).Average();
         var priorMa20 = closes.Skip(closes.Length - 25).Take(20).Average();
         var maDown = ma10 < ma20 && ma20 < priorMa20;
@@ -62,11 +63,15 @@ public sealed class WaveBottomScorer(WaveBottomOptions options)
 
         var priorMa10 = closes.Skip(closes.Length - 15).Take(10).Average();
         var maRecovered = closes[^1] > ma10 && ma10 >= priorMa10;
+        var shortPressure = highs.Skip(highs.Length - 11).Take(10).Max();
+        var shortPressureRecovered = closes[^1] > shortPressure && closes[^1] > ma5;
         var previousFiveVolume = volumes.Skip(volumes.Length - 6).Take(5).Average();
         var volumeImproved = previousFiveVolume > 0d && volumes[^1] >= previousFiveVolume * 1.2d;
 
         var components = new[]
         {
+            Component("TREND_GATE", "趋势门禁（不计分）", 0, trendGate,
+                $"满足={trendMatches}/3,20日收益={return20:P2},60日回撤={drawdown60:P2},均线下行={(maDown ? "是" : "否")}"),
             Component("RSI_TURN", "RSI超跌后上拐", 20, rsiMatched,
                 rsi.Length == 0 ? "RSI不可用" : $"RSI14={rsi[^1]:F2}"),
             Component("MACD_CONTRACTION", "MACD空头动能收缩", 15, macdMatched,
@@ -77,6 +82,8 @@ public sealed class WaveBottomScorer(WaveBottomOptions options)
                 structure ? "更高低点或双底" : "未形成确定结构"),
             Component("MA_RECOVERY", "均线修复", 15, maRecovered,
                 $"收盘={closes[^1]:F3},MA10={ma10:F3}"),
+            Component("SHORT_PRESSURE_MA5", "突破短期压力并站上5日线", 10, shortPressureRecovered,
+                $"收盘={closes[^1]:F3},前10日压力={shortPressure:F3},MA5={ma5:F3}"),
             Component("VOLUME_CONFIRM", "突破量能改善", 10, volumeImproved,
                 previousFiveVolume <= 0d ? "均量不可用" : $"量比={volumes[^1] / previousFiveVolume:F2}")
         };
