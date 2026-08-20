@@ -38,7 +38,10 @@ public sealed class PairTrendCollectionSessionStore
                 _session = new Session(tradingDate, symbols);
             }
             else if (!_session.Universe.Keys.ToHashSet(SymbolComparer)
-                .SetEquals(symbols.Select(static item => item.Symbol)))
+                         .SetEquals(symbols.Select(static item => item.Symbol)) ||
+                     symbols.Any(item => !_session.Universe.TryGetValue(
+                         NormalizeSymbol(item.Symbol), out var existing) ||
+                         existing.StrategyEligible != item.StrategyEligible))
             {
                 // 股票池发生变化，上一轮的全量完备性前提已不成立。只允许重新 bootstrap。
                 _session = new Session(tradingDate, symbols);
@@ -175,6 +178,9 @@ public sealed class PairTrendCollectionSessionStore
                     byFrequency[frequency] = byEob;
                 }
                 byEob[eob] = candidate;
+                if (session.VerifiedMissingEobs.TryGetValue(symbol, out var missingByFrequency) &&
+                    missingByFrequency.TryGetValue(frequency, out var previouslyMissing))
+                    previouslyMissing.Remove(eob);
                 if (!cycle.ReceivedEobsByFrequencyAndSymbol[frequency]
                     .TryGetValue(symbol, out var receivedEobs))
                 {
@@ -293,11 +299,26 @@ public sealed class PairTrendCollectionSessionStore
             // delete a bar retained from an earlier overlap cycle.
             foreach (var (symbol, frequency, missingEobs) in validatedSparseRemovals)
             {
-                if (!session.Bars.TryGetValue(symbol, out var byFrequency) ||
-                    !byFrequency.TryGetValue(frequency, out var byEob))
-                    continue;
+                SortedDictionary<DateTime, PairTrendBar>? byEob = null;
+                if (session.Bars.TryGetValue(symbol, out var byFrequency) &&
+                    byFrequency.TryGetValue(frequency, out var existingByEob))
+                    byEob = existingByEob;
+                if (!session.VerifiedMissingEobs.TryGetValue(symbol, out var missingByFrequency))
+                {
+                    missingByFrequency = new Dictionary<string, HashSet<DateTime>>(
+                        StringComparer.OrdinalIgnoreCase);
+                    session.VerifiedMissingEobs[symbol] = missingByFrequency;
+                }
+                if (!missingByFrequency.TryGetValue(frequency, out var verifiedMissing))
+                {
+                    verifiedMissing = [];
+                    missingByFrequency[frequency] = verifiedMissing;
+                }
                 foreach (var eob in missingEobs)
-                    byEob.Remove(eob);
+                {
+                    byEob?.Remove(eob);
+                    verifiedMissing.Add(eob);
+                }
             }
 
             cycle.Completed = true;
@@ -325,7 +346,16 @@ public sealed class PairTrendCollectionSessionStore
                     foreach (var pair in byFrequency)
                         barsByFrequency[pair.Key] = pair.Value.Values.ToArray();
                 }
-                symbols.Add(new PairTrendCollectionSymbolSnapshot(symbol.Symbol, symbol.Name, barsByFrequency));
+                var missingByFrequency = new Dictionary<string, IReadOnlyCollection<DateTime>>(
+                    StringComparer.OrdinalIgnoreCase);
+                if (_session.VerifiedMissingEobs.TryGetValue(symbol.Symbol, out var verifiedMissing))
+                {
+                    foreach (var pair in verifiedMissing)
+                        missingByFrequency[pair.Key] = pair.Value.Order().ToArray();
+                }
+                symbols.Add(new PairTrendCollectionSymbolSnapshot(
+                    symbol.Symbol, symbol.Name, symbol.StrategyEligible,
+                    barsByFrequency, missingByFrequency));
             }
             snapshot = new PairTrendCollectionSnapshot(cycle.CycleId, _session.TradingDate,
                 cycle.Windows, symbols);
@@ -494,6 +524,8 @@ public sealed class PairTrendCollectionSessionStore
             }, SymbolComparer);
         public Dictionary<string, Dictionary<string, SortedDictionary<DateTime, PairTrendBar>>> Bars { get; } =
             new(SymbolComparer);
+        public Dictionary<string, Dictionary<string, HashSet<DateTime>>> VerifiedMissingEobs { get; } =
+            new(SymbolComparer);
         public Dictionary<string, DateTime> Watermarks { get; } = new(StringComparer.OrdinalIgnoreCase);
         public Dictionary<string, Cycle> Plans { get; } = new(StringComparer.Ordinal);
         public bool InFlight { get; set; }
@@ -542,4 +574,6 @@ public sealed record PairTrendCollectionSnapshot(
 public sealed record PairTrendCollectionSymbolSnapshot(
     string Symbol,
     string? SymbolName,
-    IReadOnlyDictionary<string, IReadOnlyList<PairTrendBar>> BarsByFrequency);
+    bool StrategyEligible,
+    IReadOnlyDictionary<string, IReadOnlyList<PairTrendBar>> BarsByFrequency,
+    IReadOnlyDictionary<string, IReadOnlyCollection<DateTime>> VerifiedMissingEobsByFrequency);

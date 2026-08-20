@@ -435,6 +435,12 @@ public sealed class PairTrendLiveController(
                invalidation_reason InvalidationReason,root_5m_bob RootFiveMinuteBob,
                root_5m_eob RootFiveMinuteEob,last_transition_at LastTransitionAt,
                event_revision EventRevision,
+               next_day_validation_date NextDayValidationDate,
+               next_day_validation_status NextDayValidationStatus,
+               next_day_observed_extreme_price NextDayObservedExtremePrice,
+               next_day_breached_at NextDayBreachedAt,
+               next_day_breach_price NextDayBreachPrice,
+               next_day_validation_checked_at NextDayValidationCheckedAt,
                last_source_event_id LastSourceEventId,summary_json SummaryJson,
                created_at CreatedAt,updated_at UpdatedAt
         FROM pair_trend_live_event
@@ -535,6 +541,12 @@ public sealed class PairTrendLiveController(
         public DateTime? RootFiveMinuteEob { get; init; }
         public DateTime? LastTransitionAt { get; init; }
         public int EventRevision { get; init; }
+        public DateTime? NextDayValidationDate { get; init; }
+        public string? NextDayValidationStatus { get; init; }
+        public decimal? NextDayObservedExtremePrice { get; init; }
+        public DateTime? NextDayBreachedAt { get; init; }
+        public decimal? NextDayBreachPrice { get; init; }
+        public DateTime? NextDayValidationCheckedAt { get; init; }
         public string LastSourceEventId { get; init; } = string.Empty;
         public string SummaryJson { get; init; } = "{}";
         public DateTime CreatedAt { get; init; }

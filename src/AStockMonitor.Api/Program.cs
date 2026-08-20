@@ -89,6 +89,7 @@ builder.Services.AddSingleton<CollectorOperationsReportService>();
 builder.Services.AddSingleton<OperationsStatusService>();
 builder.Services.AddSingleton<AuthoritativeUniverseSyncService>();
 builder.Services.AddSingleton<WaveBottomCollectionService>();
+builder.Services.AddSingleton<PairTrendNextDayValidationService>();
 builder.Services.AddSingleton<PairTrendQueryService>();
 builder.Services.AddSingleton<PairTrendQueryCache>();
 builder.Services.AddMemoryCache(options => options.SizeLimit = 10_000);

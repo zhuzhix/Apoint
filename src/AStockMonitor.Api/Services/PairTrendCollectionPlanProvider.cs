@@ -80,9 +80,10 @@ public sealed class PairTrendCollectionPlanProvider(
         }
 
         await using var connection = connectionFactory.Create();
-        var universe = (await connection.QueryAsync<PairTrendCollectionSymbol>(new CommandDefinition(
+        var universeRows = (await connection.QueryAsync<CollectionSymbolRow>(new CommandDefinition(
             """
-            SELECT s.symbol AS Symbol,MAX(COALESCE(i.name,s.name)) AS Name
+            SELECT s.symbol AS Symbol,MAX(COALESCE(i.name,s.name)) AS Name,
+                   TRUE AS StrategyEligible
             FROM instrument_daily_status s
             LEFT JOIN instrument i ON i.symbol=s.symbol
             WHERE s.trading_date=@TradingDate AND s.is_eligible=TRUE
@@ -92,6 +93,7 @@ public sealed class PairTrendCollectionPlanProvider(
             """,
             new { TradingDate = tradingDate.ToDateTime(TimeOnly.MinValue) },
             cancellationToken: cancellationToken))).ToArray();
+        var universe = universeRows.Select(static item => item.ToSymbol()).ToArray();
         if (universe.Length != sync.EligibleSymbols)
             return NoPlan("当日可采集股票数与权威同步凭证不一致，拒绝下发计划。", tradingDate);
         // 当前采集黑名单只描述“现在”的供应商/证券故障，不能用于篡改历史日的
@@ -99,7 +101,26 @@ public sealed class PairTrendCollectionPlanProvider(
         var blacklisted = tradingDate == today
             ? await collectorOperations.GetActiveBlacklistedSymbolsAsync(cancellationToken)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var symbols = universe.Where(item => !blacklisted.Contains(item.Symbol)).ToArray();
+        var selected = universe.Where(item => !blacklisted.Contains(item.Symbol))
+            .ToDictionary(static item => item.Symbol, StringComparer.OrdinalIgnoreCase);
+        var validationOnlyRows = (await connection.QueryAsync<CollectionSymbolRow>(new CommandDefinition(
+            """
+            SELECT validation.symbol AS Symbol,MAX(COALESCE(instrument.name,validation.symbol)) AS Name,
+                   FALSE AS StrategyEligible
+            FROM pair_trend_next_day_validation validation
+            JOIN pair_trend_next_day_validation_run run ON run.id=validation.run_id
+            LEFT JOIN instrument ON instrument.symbol=validation.symbol
+            WHERE run.run_mode='REALTIME' AND run.date_to=@TradingDate
+              AND validation.validation_trading_date=@TradingDate
+              AND validation.status IN ('PENDING','MONITORING')
+            GROUP BY validation.symbol
+            ORDER BY validation.symbol;
+            """, new { TradingDate = tradingDate.ToDateTime(TimeOnly.MinValue) },
+            cancellationToken: cancellationToken))).ToArray();
+        var validationOnly = validationOnlyRows.Select(static item => item.ToSymbol()).ToArray();
+        foreach (var watch in validationOnly)
+            selected.TryAdd(watch.Symbol, watch);
+        var symbols = selected.Values.OrderBy(static item => item.Symbol, StringComparer.Ordinal).ToArray();
         if (symbols.Length == 0)
         {
             return NoPlan(universe.Length == 0
@@ -113,6 +134,21 @@ public sealed class PairTrendCollectionPlanProvider(
     private static PairTrendCollectionPlanResponse NoPlan(string reason, DateOnly tradingDate) => new(
         false, reason, null, tradingDate, null, Array.Empty<PairTrendCollectionWindow>(),
         Array.Empty<PairTrendCollectionSymbol>(), 0);
+
+    /// <summary>
+    /// MySQL 将 SQL 字面量 TRUE/FALSE 作为 64 位整数返回。不要让 Dapper 直接
+    /// 调用带 bool 参数的 record 构造函数，否则真实 MySQL 会因 Int64/Boolean
+    /// 构造签名不匹配而返回 500。先按数据库原生类型读取，再显式转换成 API 契约。
+    /// </summary>
+    private sealed class CollectionSymbolRow
+    {
+        public string Symbol { get; init; } = string.Empty;
+        public string? Name { get; init; }
+        public long StrategyEligible { get; init; }
+
+        public PairTrendCollectionSymbol ToSymbol() =>
+            new(Symbol, Name, StrategyEligible != 0);
+    }
 
     private static TimeZoneInfo ResolveChinaTimeZone()
     {

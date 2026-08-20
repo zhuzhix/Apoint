@@ -18,7 +18,8 @@ public sealed class InternalPairTrendCollectionController(
     PairTrendCollectionSessionStore sessionStore,
     PairTrendCollectionComputeQueue computeQueue,
     CollectorOperationsReportService operationsReportService,
-    AuthoritativeUniverseSyncService universeSyncService) : ControllerBase
+    AuthoritativeUniverseSyncService universeSyncService,
+    PairTrendNextDayValidationService nextDayValidationService) : ControllerBase
 {
     [HttpGet("plan")]
     public async Task<ActionResult<PairTrendCollectionPlanResponse>> GetPlan(
@@ -124,7 +125,15 @@ public sealed class InternalPairTrendCollectionController(
         if (Authorize() is { } denied) return denied;
         try
         {
-            return Ok(await universeSyncService.SynchronizeAsync(request, cancellationToken));
+            var result = await universeSyncService.SynchronizeAsync(request, cancellationToken);
+            if (request.IsTradingDay && request.Source == "dongcai-gm")
+            {
+                if (request.PreviousTradingDate is null)
+                    throw new ArgumentException("当前交易日股票池必须携带官方上一交易日。");
+                await nextDayValidationService.PrepareRealtimeAsync(
+                    request.TradingDate, request.PreviousTradingDate.Value, cancellationToken);
+            }
+            return Ok(result);
         }
         catch (Exception exception) when (exception is ArgumentException or InvalidOperationException)
         {

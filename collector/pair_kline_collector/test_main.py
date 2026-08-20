@@ -484,7 +484,7 @@ class SupervisorTests(unittest.TestCase):
             self.assertEqual(symbols, client.completed[0][1])
             self.assertFalse(client.aborted)
             self.assertEqual(6, client.heartbeats[-1]["activeProcesses"])
-            self.assertEqual("2.2.8", client.heartbeats[-1]["version"])
+            self.assertEqual("2.3.0", client.heartbeats[-1]["version"])
             self.assertTrue(
                 all(worker["pid"] is not None for worker in client.heartbeats[-1]["workers"])
             )
@@ -1332,6 +1332,18 @@ class UniverseTests(unittest.TestCase):
         provider = main.GmHistoryProvider("unit-test-token")
         provider._gm = gm
         return provider
+
+    def test_common_trading_dates_requires_identical_shse_szse_calendar(self) -> None:
+        requested = date(2026, 8, 18)
+        gm = FakeGm()
+        self.assertEqual(
+            [requested], self.provider(gm).common_trading_dates(requested, requested)
+        )
+
+        mismatched = FakeGm()
+        mismatched.trading_flags["SZSE"] = False
+        with self.assertRaisesRegex(main.CollectorError, "沪深次日验证交易日历不一致"):
+            self.provider(mismatched).common_trading_dates(requested, requested)
 
     def test_strict_current_day_shanghai_shenzhen_universe(self) -> None:
         gm = FakeGm()

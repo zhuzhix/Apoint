@@ -116,7 +116,9 @@ var sparseWork = sparseStore.Complete(sparsePlan.CycleId!,
         new PairTrendCollectionSparseManifest("SHSE.600000", "5m", [missing0940], 3)
     ]));
 Require(sparseStore.TryTakeSnapshot(sparseWork.CycleId, out var sparseSnapshot) &&
-        sparseSnapshot!.Symbols.Single().BarsByFrequency["5m"].Count == 1,
+        sparseSnapshot!.Symbols.Single().BarsByFrequency["5m"].Count == 1 &&
+        sparseSnapshot.Symbols.Single().VerifiedMissingEobsByFrequency["5m"]
+            .SequenceEqual([missing0940]),
     "三次一致的精确缺口证明只放行真实收到的 K 线，绝不能合成 09:40。" );
 
 var idempotentStore = new PairTrendCollectionSessionStore();
@@ -476,6 +478,73 @@ Require(waveV3Migration.Contains("pair-wave-bottom-v3", StringComparison.Ordinal
         waveV3Migration.Contains("pair-wave-bottom-v2", StringComparison.Ordinal) &&
         waveV3Migration.Contains("old_job.status='COMPLETED'", StringComparison.Ordinal),
     "035必须把所有已完成v2任务重新排入v3，并保留可审计的新旧算法版本。");
+
+var validationDate = new DateOnly(2026, 8, 18);
+var validationEobs = FiveMinuteCloses()
+    .Select(close => validationDate.ToDateTime(close)).ToArray();
+var topBars = validationEobs.Select((eob, index) => new PairTrendNextDayBar(
+    eob, index == 7 ? 12.01m : 12.00m, 11.50m, $"top-{index:00}" )).ToArray();
+var topEvaluation = PairTrendNextDayValidationEvaluator.Evaluate(
+    "TOP", 12.00m, topBars, []);
+Require(topEvaluation.Status == "INVALIDATED" &&
+        topEvaluation.BreachedAt == validationEobs[7] &&
+        topEvaluation.BreachPrice == 12.01m,
+    "对子顶必须在第一根最高价严格突破的5分钟K线失效。");
+var equalTop = PairTrendNextDayValidationEvaluator.Evaluate(
+    "TOP", 12.00m,
+    validationEobs.Select((eob, index) => new PairTrendNextDayBar(eob, 12.00m, 11.5m, $"equal-{index:00}")).ToArray(), []);
+Require(equalTop.Status == "PASSED", "对子价相等不能判定次日失效。");
+var bottomBars = validationEobs.Select((eob, index) => new PairTrendNextDayBar(
+    eob, 12.50m, index == 13 ? 11.99m : 12.00m, $"bottom-{index:00}" )).ToArray();
+var bottomEvaluation = PairTrendNextDayValidationEvaluator.Evaluate(
+    "BOTTOM", 12.00m, bottomBars, []);
+Require(bottomEvaluation.Status == "INVALIDATED" &&
+        bottomEvaluation.BreachedAt == validationEobs[13] &&
+        bottomEvaluation.BreachPrice == 11.99m,
+    "对子底必须在第一根最低价严格跌破的5分钟K线失效。");
+var noTrade = PairTrendNextDayValidationEvaluator.Evaluate(
+    "BOTTOM", 12.00m, [], validationEobs);
+Require(noTrade.Status == "NO_TRADE" && noTrade.BarCount == 0 &&
+        noTrade.VerifiedMissingCount == 48,
+    "全天48窗口均有三次官方缺失证明时必须标记NO_TRADE。");
+ExpectInvalidOperation(() => PairTrendNextDayValidationEvaluator.Evaluate(
+    "TOP", 12.00m, topBars.Take(47).ToArray(), []));
+var realtimeExpected = validationEobs.Take(2).ToArray();
+var realtimeMonitoring = PairTrendNextDayValidationEvaluator.EvaluateRealtime(
+    "TOP", 12.00m,
+    [new PairTrendNextDayBar(realtimeExpected[0], 12.00m, 11.50m, "rt-1")],
+    [realtimeExpected[1]], realtimeExpected, false);
+Require(realtimeMonitoring.Status == "MONITORING" &&
+        realtimeMonitoring.VerifiedMissingCount == 1,
+    "盘中未突破且未收盘必须保持MONITORING，并保留三次确认的缺口数量。");
+var realtimeBreak = PairTrendNextDayValidationEvaluator.EvaluateRealtime(
+    "BOTTOM", 12.00m,
+    [new PairTrendNextDayBar(realtimeExpected[0], 12.50m, 11.99m, "rt-break")],
+    [realtimeExpected[1]], realtimeExpected, false);
+Require(realtimeBreak.Status == "INVALIDATED" &&
+        realtimeBreak.BreachedAt == realtimeExpected[0],
+    "盘中最低价严格跌破对子底时必须立即失效，不能等到收盘。");
+var realtimeFinal = PairTrendNextDayValidationEvaluator.EvaluateRealtime(
+    "TOP", 12.00m,
+    [new PairTrendNextDayBar(realtimeExpected[0], 12.00m, 11.50m, "rt-final")],
+    [realtimeExpected[1]], realtimeExpected, true);
+Require(realtimeFinal.Status == "PASSED", "收盘仍未突破的事件必须进入PASSED终态。");
+ExpectInvalidOperation(() => PairTrendNextDayValidationEvaluator.EvaluateRealtime(
+    "TOP", 12.00m,
+    [new PairTrendNextDayBar(realtimeExpected[0], 12.00m, 11.50m, "rt-incomplete")],
+    [], realtimeExpected, false));
+
+var nextDayMigration = File.ReadAllText(Path.Combine(
+    verificationRoot, "database", "migrations", "036_pair_trend_next_day_validation.sql"));
+Require(nextDayMigration.Contains("pair_trend_next_day_validation_change", StringComparison.Ordinal) &&
+        nextDayMigration.Contains("next_day_validation_source_hash", StringComparison.Ordinal) &&
+        nextDayMigration.Contains("ix_pair_trend_live_established_validation", StringComparison.Ordinal),
+    "036必须同时提供运行审计、可回滚前镜像和成立事件索引。");
+var nextDayRealtimeMigration = File.ReadAllText(Path.Combine(
+    verificationRoot, "database", "migrations", "037_pair_trend_next_day_realtime.sql"));
+Require(nextDayRealtimeMigration.Contains("MONITORING", StringComparison.Ordinal) &&
+        nextDayRealtimeMigration.Contains("chk_pair_trend_next_day_status", StringComparison.Ordinal),
+    "037必须把盘中MONITORING纳入严格验证状态门禁。");
 
 Console.WriteLine("PairTrend collection and grouped query verification passed.");
 

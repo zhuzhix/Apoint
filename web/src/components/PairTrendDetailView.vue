@@ -5,7 +5,7 @@ import { useRouter } from 'vue-router'
 import { ReloadOutlined, StockOutlined, FullscreenOutlined } from '@ant-design/icons-vue'
 import { marketApi } from '@/api/market'
 import KlineChart from '@/components/KlineChart.vue'
-import { formatTime, label, price } from '@/utils/format'
+import { formatDate, formatTime, formatUtcTime, label, price } from '@/utils/format'
 import type { PairChartMarker, PairTrendHit, PairTrendViewContext } from '@/types/market'
 
 const props = defineProps<{ context: PairTrendViewContext; eventId: number; compact?: boolean }>()
@@ -84,6 +84,14 @@ function waveSignalLabel(value?: string) {
   if (value === 'CANDIDATE') return '候选'
   return '未形成信号'
 }
+function nextDayValidationLabel(value?: string) {
+  if (value === 'MONITORING') return '盘中验证中'
+  if (value === 'INVALIDATED') return '次日价格突破，已失效'
+  if (value === 'PASSED') return '次日验证通过'
+  if (value === 'NO_TRADE') return '次日全天无成交'
+  if (value === 'NOT_APPLICABLE') return '次日前已经失效，无需验证'
+  return '尚未验证'
+}
 </script>
 
 <template>
@@ -124,6 +132,17 @@ function waveSignalLabel(value?: string) {
         <div><span>升级证据</span><strong>{{ event.confirmedHitCount }}</strong></div>
         <div><span>价格 Tick</span><strong>{{ event.priceTicks ?? '—' }}</strong></div>
       </div>
+
+      <section class="next-day-detail" :class="`status-${(event.nextDayValidationStatus || 'pending').toLowerCase()}`">
+        <header><div><span class="eyebrow">NEXT TRADING DAY CHECK</span><h3>成立次日验证</h3></div><strong>{{ nextDayValidationLabel(event.nextDayValidationStatus) }}</strong></header>
+        <div class="next-day-detail-grid">
+          <div><span>验证交易日</span><strong>{{ formatDate(event.nextDayValidationDate) }}</strong></div>
+          <div><span>{{ event.pivotType === 'TOP' ? '当日最高价' : '当日最低价' }}</span><strong class="numeric">{{ event.nextDayObservedExtremePrice === undefined ? '—' : price(event.nextDayObservedExtremePrice) }}</strong></div>
+          <div><span>突破时间</span><strong>{{ event.nextDayBreachedAt ? formatTime(event.nextDayBreachedAt) : '—' }}</strong></div>
+          <div><span>突破价格</span><strong class="numeric">{{ event.nextDayBreachPrice === undefined ? '—' : price(event.nextDayBreachPrice) }}</strong></div>
+          <div><span>验证完成</span><strong>{{ formatUtcTime(event.nextDayValidationCheckedAt) }}</strong></div>
+        </div>
+      </section>
 
       <section v-if="wave" class="wave-score-detail">
         <header class="wave-score-head">
@@ -196,6 +215,15 @@ function waveSignalLabel(value?: string) {
 
 <style scoped>
 .wave-score-detail { margin:18px 0; padding:18px; border:1px solid #26354b; border-radius:12px; background:#0e1727; }
+.next-day-detail { margin:18px 0; padding:18px; border:1px solid #26354b; border-radius:12px; background:#0e1727; }
+.next-day-detail header { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.next-day-detail h3 { margin:3px 0 0; color:#e6edf7; }.next-day-detail header>strong { color:#91a0b5; }
+.next-day-detail.status-passed { border-color:rgba(82,196,26,.32); }.next-day-detail.status-passed header>strong { color:#95de64; }
+.next-day-detail.status-invalidated { border-color:rgba(255,77,79,.34); }.next-day-detail.status-invalidated header>strong { color:#ff9c9c; }
+.next-day-detail.status-monitoring { border-color:rgba(22,119,255,.34); }.next-day-detail.status-monitoring header>strong { color:#91caff; }
+.next-day-detail-grid { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:10px; margin-top:14px; }
+.next-day-detail-grid>div { padding:10px; border-radius:8px; background:#101b2d; }.next-day-detail-grid span,.next-day-detail-grid strong { display:block; }
+.next-day-detail-grid span { color:#7f8fa5; font-size:11px; }.next-day-detail-grid strong { margin-top:5px; color:#dce4ef; font-size:12px; }
 .wave-score-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; }
 .wave-score-head h3 { margin:3px 0 0; color:#e6edf7; }
 .wave-score-total { display:flex; align-items:baseline; gap:7px; color:#91a0b5; }
@@ -209,6 +237,6 @@ function waveSignalLabel(value?: string) {
 .wave-score-item.matched .wave-score-item-title strong { color:#95de64; }
 .wave-score-item p { margin:6px 0 0; color:#7f8fa5; font-size:11px; line-height:1.5; }
 @media (max-width:720px) {
-  .wave-score-head { align-items:flex-start; }.wave-score-items { grid-template-columns:1fr; }.wave-score-item.gate { grid-column:auto; }
+  .wave-score-head,.next-day-detail header { align-items:flex-start; flex-direction:column; }.wave-score-items,.next-day-detail-grid { grid-template-columns:1fr; }.wave-score-item.gate { grid-column:auto; }
 }
 </style>

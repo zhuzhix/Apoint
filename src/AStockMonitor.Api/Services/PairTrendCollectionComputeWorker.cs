@@ -29,6 +29,7 @@ public sealed class PairTrendCollectionComputeWorker(
     PairTrendCollectionComputeQueue queue,
     PairTrendCollectionSessionStore sessionStore,
     IPairTrendLiveSnapshotWriter writer,
+    PairTrendNextDayValidationService nextDayValidationService,
     PairTrendQueryCache queryCache,
     ILogger<PairTrendCollectionComputeWorker> logger) : BackgroundService
 {
@@ -46,8 +47,10 @@ public sealed class PairTrendCollectionComputeWorker(
 
             try
             {
+                await nextDayValidationService.ProcessRealtimeSnapshotAsync(snapshot, stoppingToken);
                 foreach (var symbol in snapshot.Symbols)
                 {
+                    if (!symbol.StrategyEligible) continue;
                     var result = _engine.Replay(symbol.Symbol, symbol.SymbolName, symbol.BarsByFrequency,
                         snapshot.TradingDate, snapshot.TradingDate);
                     await writer.WriteAsync(snapshot.TradingDate, snapshot.CycleId, result, stoppingToken);

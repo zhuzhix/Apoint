@@ -39,7 +39,7 @@ BACKFILL_COMPUTE_TIMEOUT_SECONDS = 2 * 60 * 60
 SPARSE_CONFIRMATIONS_REQUIRED = 3
 STATE_REPLACE_RETRY_DELAYS_SECONDS = (0.05, 0.1, 0.2, 0.4, 0.8)
 LOGGER = logging.getLogger("pair-kline-collector")
-COLLECTOR_VERSION = "2.2.8"
+COLLECTOR_VERSION = "2.3.0"
 PROVIDER_FREQUENCY_RETRY_SECONDS = 300
 PROVIDER_AUTHORIZATION_REFRESH_SECONDS = 300
 WEBAPI_TRANSPORT_RETRY_DELAYS_SECONDS = (1.0, 2.0, 4.0)
@@ -360,6 +360,89 @@ class ApiClient:
             retry_transport=True,
         )
 
+    def create_next_day_validation_run(
+        self,
+        date_from: date,
+        date_to: date,
+        apply_changes: bool,
+        trading_dates: list[date],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/internal/pair-trend-collection/next-day-validation/history/runs",
+            {
+                "dateFrom": date_from.isoformat(),
+                "dateTo": date_to.isoformat(),
+                "applyChanges": apply_changes,
+                "tradingDates": [item.isoformat() for item in trading_dates],
+            },
+            retry_transport=True,
+        )
+
+    def get_next_day_validation_run(self, run_id: int) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            f"/api/internal/pair-trend-collection/next-day-validation/history/runs/{run_id}",
+            retry_transport=True,
+        )
+
+    def claim_next_day_validation_jobs(
+        self, run_id: int, maximum_symbols: int = 200
+    ) -> dict[str, Any]:
+        return self._request(
+            "GET",
+            "/api/internal/pair-trend-collection/next-day-validation/history/jobs/claim?"
+            + urlencode(
+                {
+                    "runId": run_id,
+                    "collectorId": self._settings.collector_id,
+                    "maxSymbols": maximum_symbols,
+                }
+            ),
+            retry_transport=True,
+        )
+
+    def push_next_day_validation_batch(
+        self, lease_token: str, bars: list[dict[str, Any]]
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/internal/pair-trend-collection/next-day-validation/history/jobs/batches",
+            {"leaseToken": lease_token, "bars": bars},
+            retry_transport=True,
+        )
+
+    def complete_next_day_validation_jobs(
+        self,
+        lease_token: str,
+        sparse_proofs: list[dict[str, Any]],
+        failures: list[dict[str, str]],
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/internal/pair-trend-collection/next-day-validation/history/jobs/complete",
+            {
+                "leaseToken": lease_token,
+                "sparseProofs": sparse_proofs,
+                "failures": failures,
+            },
+            retry_transport=True,
+        )
+
+    def fail_next_day_validation_lease(
+        self, lease_token: str, error: str, provider_unavailable: bool
+    ) -> dict[str, Any]:
+        return self._request(
+            "POST",
+            "/api/internal/pair-trend-collection/next-day-validation/history/jobs/fail",
+            {
+                "leaseToken": lease_token,
+                "error": sanitize_error(error),
+                "providerUnavailable": provider_unavailable,
+            },
+            retry_transport=True,
+        )
+
     def _request(
         self,
         method: str,
@@ -542,6 +625,37 @@ class GmHistoryProvider:
                 f"截止 {end_date.isoformat()} 只取得 {len(calendars['SHSE'])}/{count} 个交易日"
             )
         return calendars["SHSE"][-count:]
+
+    def common_trading_dates(self, start_date: date, end_date: date) -> list[date]:
+        """Return the exact common SHSE/SZSE trading dates for a closed range."""
+        if start_date > end_date:
+            raise CollectorError("交易日历开始日期不能晚于结束日期。")
+        gm = self._load_sdk()
+        calendars: dict[str, list[date]] = {}
+        for exchange in ("SHSE", "SZSE"):
+            try:
+                values = gm.get_trading_dates(
+                    exchange=exchange,
+                    start_date=start_date.isoformat(),
+                    end_date=end_date.isoformat(),
+                )
+            except Exception as error:
+                raise map_provider_error(
+                    f"gm.get_trading_dates({exchange}) 次日验证日历失败", error
+                ) from error
+            calendars[exchange] = sorted(
+                {
+                    parsed
+                    for value in values or []
+                    if (parsed := optional_date(value)) is not None
+                    and start_date <= parsed <= end_date
+                }
+            )
+        if calendars["SHSE"] != calendars["SZSE"]:
+            raise CollectorError("gm 沪深次日验证交易日历不一致，拒绝使用近似日期。")
+        if not calendars["SHSE"]:
+            raise ProviderFrequencyUnavailableError("次日验证范围内没有取得交易日。")
+        return calendars["SHSE"]
 
     def validate_authorized_history(self) -> None:
         """Prove that the token can execute the same history API used by workers."""
@@ -1945,6 +2059,16 @@ class CollectorSupervisor:
                 if trading_date < china_today()
                 else "dongcai-gm"
             )
+            previous_trading_date: date | None = None
+            if source == "dongcai-gm" and snapshot.is_trading_day:
+                recent_dates = self.universe_provider.common_trading_dates(
+                    trading_date - timedelta(days=40), trading_date
+                )
+                if len(recent_dates) < 2 or recent_dates[-1] != trading_date:
+                    raise CollectorError(
+                        f"gm 官方日历未能确认 {trading_date.isoformat()} 及其上一交易日。"
+                    )
+                previous_trading_date = recent_dates[-2]
             payload = {
                 "collectorId": self.settings.collector_id,
                 "tradingDate": snapshot.trading_date.isoformat(),
@@ -1952,6 +2076,11 @@ class CollectorSupervisor:
                 "source": source,
                 "sourceUpdatedAt": snapshot.source_updated_at.isoformat(),
                 "symbols": list(snapshot.symbols),
+                "previousTradingDate": (
+                    previous_trading_date.isoformat()
+                    if previous_trading_date is not None
+                    else None
+                ),
             }
             response = self.client.synchronize_universe(payload)
             status = str(response.get("status", "")).lower()

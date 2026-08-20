@@ -345,7 +345,13 @@ public sealed class PairTrendQueryService(
                e.last_transition_at LastTransitionAt,
                e.wave_calculation_status WaveCalculationStatus,e.wave_signal WaveSignal,
                e.wave_score WaveScore,e.wave_evaluated_at WaveEvaluatedAt,
-               e.wave_data_as_of WaveDataAsOf,e.wave_algorithm_version WaveAlgorithmVersion
+               e.wave_data_as_of WaveDataAsOf,e.wave_algorithm_version WaveAlgorithmVersion,
+               e.next_day_validation_date NextDayValidationDate,
+               e.next_day_validation_status NextDayValidationStatus,
+               e.next_day_observed_extreme_price NextDayObservedExtremePrice,
+               e.next_day_breached_at NextDayBreachedAt,
+               e.next_day_breach_price NextDayBreachPrice,
+               e.next_day_validation_checked_at NextDayValidationCheckedAt
         FROM pair_trend_live_event e
         """;
 

@@ -28,6 +28,14 @@ function waveScore(record: PairTrendTimelineEvent) {
   if (record.waveSignal === 'CANDIDATE') return { text: String(record.waveScore), tone: 'candidate', title: '候选' }
   return { text: String(record.waveScore), tone: 'muted', title: '未形成波段信号' }
 }
+function nextDayValidation(record: PairTrendTimelineEvent) {
+  if (record.nextDayValidationStatus === 'MONITORING') return { text: '盘中验证中', tone: 'monitoring' }
+  if (record.nextDayValidationStatus === 'INVALIDATED') return { text: '次日失效', tone: 'invalidated' }
+  if (record.nextDayValidationStatus === 'PASSED') return { text: '次日通过', tone: 'passed' }
+  if (record.nextDayValidationStatus === 'NO_TRADE') return { text: '次日停牌', tone: 'muted' }
+  if (record.nextDayValidationStatus === 'NOT_APPLICABLE') return { text: '无需验证', tone: 'muted' }
+  return { text: '—', tone: 'muted' }
+}
 
 const columns = [
   { title: '顶底日期', key: 'pivotAt', width: 156 },
@@ -38,6 +46,7 @@ const columns = [
   { title: '截至结束日', key: 'stageAtEnd', width: 118 },
   { title: '当前状态', key: 'currentStage', width: 118 },
   { title: '波段分数', key: 'waveSignal', width: 100 },
+  { title: '次日验证', key: 'nextDayValidation', width: 112 },
   { title: '失效时间', key: 'invalidatedAt', width: 156 },
   { title: '失效原因', key: 'invalidationReason', width: 180 },
   { title: '', key: 'actions', width: 68 },
@@ -81,6 +90,9 @@ const columns = [
         <button v-if="waveScore(record).text !== '—'" type="button" class="wave-score-button wave-signal numeric" :class="`wave-${waveScore(record).tone}`" title="查看评分项" @click.stop="$emit('open', record.id)">{{ waveScore(record).text }}</button>
         <span v-else class="wave-signal numeric wave-muted">—</span>
       </template>
+      <template v-else-if="column.key === 'nextDayValidation'">
+        <span class="next-day-validation" :class="`validation-${nextDayValidation(record).tone}`" :title="record.nextDayBreachedAt ? `突破 ${formatTime(record.nextDayBreachedAt)} · ${price(record.nextDayBreachPrice ?? 0)}` : ''">{{ nextDayValidation(record).text }}</span>
+      </template>
       <template v-else-if="column.key === 'invalidatedAt'">
         <span class="numeric muted">{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '—' }}</span>
       </template>
@@ -105,6 +117,7 @@ const columns = [
         <div><span>截至结束日</span><strong>{{ label(record.stageAtEnd) }} · {{ record.isActiveAtEnd ? '有效' : '失效' }}</strong></div>
         <div><span>当前状态</span><strong>{{ label(record.currentStage) }} · {{ record.currentIsActive ? '有效' : '失效' }}</strong></div>
         <div><span>波段分数</span><button v-if="waveScore(record).text !== '—'" type="button" class="wave-score-button wave-signal numeric" :class="`wave-${waveScore(record).tone}`" title="查看评分项" @click.stop="$emit('open', record.id)">{{ waveScore(record).text }}</button><strong v-else class="wave-signal numeric wave-muted">—</strong></div>
+        <div><span>次日验证</span><strong :class="`validation-${nextDayValidation(record).tone}`">{{ nextDayValidation(record).text }}</strong></div>
       </div>
       <div v-if="record.invalidatedAt || record.invalidationReason" class="pair-event-invalidated">
         <span>{{ record.invalidatedAt ? formatTime(record.invalidatedAt) : '已失效' }}</span>
@@ -127,6 +140,11 @@ const columns = [
 .wave-strong { color:#ffec8b; background:rgba(250,173,20,.18); }
 .wave-candidate { color:#91d5ff; background:rgba(24,144,255,.16); }
 .wave-muted { color:#8291a6; background:rgba(130,145,166,.10); }
+.next-day-validation { display:inline-flex; padding:2px 8px; border-radius:999px; font-size:11px; white-space:nowrap; }
+.validation-passed { color:#95de64; background:rgba(82,196,26,.12); }
+.validation-invalidated { color:#ff9c9c; background:rgba(255,77,79,.14); }
+.validation-monitoring { color:#91caff; background:rgba(22,119,255,.14); }
+.validation-muted { color:#8291a6; background:rgba(130,145,166,.10); }
 @media (max-width:720px) {
   .pair-timeline-mobile { display:grid; gap:10px; }
   .pair-event-card { padding:14px; border:1px solid #243248; border-radius:10px; background:#111a2b; }

@@ -69,6 +69,12 @@ public sealed class PairTrendTimelineEventDto
     public DateTime? WaveEvaluatedAt { get; init; }
     public DateTime? WaveDataAsOf { get; init; }
     public string? WaveAlgorithmVersion { get; init; }
+    public DateTime? NextDayValidationDate { get; init; }
+    public string? NextDayValidationStatus { get; init; }
+    public decimal? NextDayObservedExtremePrice { get; init; }
+    public DateTime? NextDayBreachedAt { get; init; }
+    public decimal? NextDayBreachPrice { get; init; }
+    public DateTime? NextDayValidationCheckedAt { get; init; }
 }
 
 public sealed record PairTrendIntradayStatusResponse(

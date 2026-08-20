@@ -5,6 +5,19 @@ export function formatTime(value?: string) {
   }).format(new Date(value))
 }
 
+export function formatDate(value?: string) {
+  if (!value) return '—'
+  const match = /^(\d{4}-\d{2}-\d{2})/.exec(value)
+  return match?.[1] ?? '—'
+}
+
+/** MySQL 的验证完成时间使用 UTC_TIMESTAMP，API 的 DATETIME 没有时区后缀。 */
+export function formatUtcTime(value?: string) {
+  if (!value) return '—'
+  const explicitZone = /(?:Z|[+-]\d{2}:\d{2})$/i.test(value)
+  return formatTime(explicitZone ? value : `${value}Z`)
+}
+
 export function formatRelativeTime(value?: string) {
   if (!value) return '—'
   const seconds = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 1000))

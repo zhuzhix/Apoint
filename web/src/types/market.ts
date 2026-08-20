@@ -97,6 +97,12 @@ export interface PairTrendEvent {
   summaryJson?: string
   createdAt?: string
   updatedAt?: string
+  nextDayValidationDate?: string
+  nextDayValidationStatus?: 'MONITORING' | 'PASSED' | 'INVALIDATED' | 'NO_TRADE' | 'NOT_APPLICABLE'
+  nextDayObservedExtremePrice?: number
+  nextDayBreachedAt?: string
+  nextDayBreachPrice?: number
+  nextDayValidationCheckedAt?: string
 }
 
 export type PairTrendSource = 'live' | 'history'
@@ -164,6 +170,12 @@ export interface PairTrendTimelineEvent {
   waveEvaluatedAt?: string
   waveDataAsOf?: string
   waveAlgorithmVersion?: string
+  nextDayValidationDate?: string
+  nextDayValidationStatus?: 'MONITORING' | 'PASSED' | 'INVALIDATED' | 'NO_TRADE' | 'NOT_APPLICABLE'
+  nextDayObservedExtremePrice?: number
+  nextDayBreachedAt?: string
+  nextDayBreachPrice?: number
+  nextDayValidationCheckedAt?: string
 }
 
 export interface PairTrendTimelineEventPage extends PageResponse<PairTrendTimelineEvent> {

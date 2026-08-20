@@ -13,7 +13,10 @@ public sealed record PairTrendCollectionPlanResponse(
 
 public sealed record PairTrendCollectionWindow(string Frequency, DateTime From, DateTime To);
 
-public sealed record PairTrendCollectionSymbol(string Symbol, string? Name);
+public sealed record PairTrendCollectionSymbol(
+    string Symbol,
+    string? Name,
+    bool StrategyEligible = true);
 
 /// <summary>Python 采集端向 API 推送的一批已闭合官方 K 线。</summary>
 public sealed record PairTrendCollectionBatchRequest(
@@ -75,7 +78,8 @@ public sealed record AuthoritativeUniverseSyncRequest(
     bool IsTradingDay,
     string Source,
     DateTimeOffset SourceUpdatedAt,
-    IReadOnlyList<AuthoritativeUniverseSymbolRequest>? Symbols);
+    IReadOnlyList<AuthoritativeUniverseSymbolRequest>? Symbols,
+    DateOnly? PreviousTradingDate = null);
 
 public sealed record AuthoritativeUniverseSymbolRequest(
     string Symbol,
